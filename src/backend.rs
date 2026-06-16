@@ -112,6 +112,26 @@ fn helper_path() -> &'static str {
     })
 }
 
+/// Turn a failed spawn into an actionable message. The common dead-end is a
+/// server over SSH where the user isn't a sudoer and `pkexec` (polkit) isn't
+/// installed - "No such file or directory" then refers to the missing `pkexec`,
+/// not the helper. Tell the user how to get out of it.
+fn spawn_error(esc: Escalation, helper: &str, e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        return match esc {
+            Escalation::Direct => {
+                format!("helper not found at {helper} - run ./install.sh (or set it up) first")
+            }
+            Escalation::Sudo => "'sudo' not found on PATH".to_string(),
+            Escalation::Pkexec => "can't gain root: no passwordless sudo, and pkexec (polkit) \
+                 isn't installed. Re-run ./install.sh (it now sets up sudo for you), or start \
+                 this as root ('su -' then run it again)."
+                .to_string(),
+        };
+    }
+    format!("spawn failed: {e}")
+}
+
 /// Run the helper with a verb (+ optional name) and optional stdin payload.
 fn helper(args: &[&str], stdin: Option<&str>) -> Result<String, String> {
     let esc = *ESC.get().unwrap_or(&Escalation::Pkexec);
@@ -140,7 +160,7 @@ fn helper(args: &[&str], stdin: Option<&str>) -> Result<String, String> {
         cmd.stdin(Stdio::piped());
     }
 
-    let mut child = cmd.spawn().map_err(|e| format!("spawn failed: {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| spawn_error(esc, helper, &e))?;
     if let Some(payload) = stdin {
         child
             .stdin
