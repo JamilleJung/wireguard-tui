@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-06-17
+
+### Added
+- **Copy the interface public key** to the clipboard with **`y`** (via the OSC 52
+  terminal escape, so it works locally and over SSH in supporting terminals) —
+  closes the last copy-to-clipboard parity gap with the desktop client.
+
 ## [1.3.4] - 2026-06-17
 
 > Version realigned with the desktop client (`wireguard-gui`) so the family
@@ -108,7 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Universal installer** (`install.sh`) for apt, dnf/yum, pacman, zypper, apk,
   xbps and eopkg, with a minimal-install dependency check.
 
-[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.3.4...HEAD
+[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.3.5...HEAD
+[1.3.5]: https://github.com/JamilleJung/wireguard-tui/compare/v1.3.4...v1.3.5
 [1.3.4]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.2...v1.3.4
 [1.1.2]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.0...v1.1.1
