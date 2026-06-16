@@ -1,0 +1,43 @@
+# Maintainer: jamillejung <izeystudio@gmail.com>
+pkgname=wireguard-tui
+pkgver=1.4.1
+pkgrel=1
+pkgdesc="A native Linux terminal UI (TUI) for managing WireGuard tunnels"
+arch=('x86_64')
+url="https://github.com/JamilleJung/wireguard-tui"
+license=('MIT')
+# Pure Rust, no GUI/C libraries: only wireguard-tools at runtime (+ polkit for
+# the passwordless helper). systemd is optional (only for start-on-boot).
+depends=('wireguard-tools' 'polkit')
+makedepends=('cargo')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')  # `makepkg -g` before publishing to the AUR
+
+prepare() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+    cargo build --frozen --release
+}
+
+check() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo test --frozen --release
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    install -Dm755 target/release/wg-tui "$pkgdir/usr/bin/wg-tui"
+    install -Dm755 packaging/wg-helper "$pkgdir/usr/lib/wireguard-tui/wg-helper"
+    install -Dm644 packaging/wireguard-tui.desktop "$pkgdir/usr/share/applications/wireguard-tui.desktop"
+    install -Dm644 packaging/wireguard-tui.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/wireguard-tui.svg"
+    install -Dm644 packaging/49-wireguard-tui.rules "$pkgdir/usr/share/polkit-1/rules.d/49-wireguard-tui.rules"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

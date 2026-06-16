@@ -42,7 +42,7 @@ small shell script**, `packaging/wg-helper`, invoked as
   session.
 
 Because the grant is bound to the absolute helper path, pointing the app at a
-different script (e.g. via `$WG_HELPER`) cannot silently gain root — it would
+different script (e.g. via `$WG_HELPER`) cannot silently gain root - it would
 fall outside the sudoers/polkit grant and prompt or fail. In release builds the
 helper-path override is additionally refused unless `WG_ALLOW_UNSAFE_HELPER=1`
 is set and the target is an absolute, root-owned, non-world-writable file.
@@ -80,7 +80,7 @@ tunnels whose source you trust.
   (`$XDG_RUNTIME_DIR`, or a `0700` fallback), so another local user cannot
   pre-plant a symlink to read the key or steer your editor, and it is removed
   afterwards.
-- **Show QR** renders the full config — *including the private key* — as a QR
+- **Show QR** renders the full config - *including the private key* - as a QR
   code. Anyone who photographs your screen gets the key. Only display it when
   it's safe to do so, and prefer a maximised window so it scans.
 - **Export** writes every tunnel's `.conf` into a `.zip`; that archive contains
@@ -100,5 +100,5 @@ minisign -Vm SHA256SUMS -P RWTyrstfFCLYkpMwbcyBRl+aGGcJikl35GY1esJDO6HTEJFIMvUC8
 sha256sum -c SHA256SUMS
 ```
 
-When in doubt, **build from source** — the project is pure Rust with no GUI/C
+When in doubt, **build from source** - the project is pure Rust with no GUI/C
 dependencies, so `cargo build --release` is reproducible on any supported distro.

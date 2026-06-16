@@ -22,7 +22,7 @@ Both are enforced in CI.
 
 - Keep the privileged helper (`packaging/wg-helper`) as small and auditable as
   possible. New privileged operations should be a new explicit verb with strict
-  input validation — never pass caller-controlled paths.
+  input validation - never pass caller-controlled paths.
 - Prefer pure-Rust dependencies; a key goal of this project is that it builds and
   runs with **no GUI/C library dependencies** and works over SSH.
 - Keep the UI keyboard-driven and discoverable (update the `?` help and the
