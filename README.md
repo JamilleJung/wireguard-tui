@@ -19,31 +19,12 @@ over SSH on a minimal server.
 ![Platform: Linux](https://img.shields.io/badge/platform-Linux-success.svg)
 ![No GUI deps](https://img.shields.io/badge/deps-pure%20Rust-blueviolet.svg)
 
+<img src="docs/screenshot.svg" alt="wg-tui — the WireGuard terminal UI" width="900">
+
 </div>
 
 > Sibling project of the desktop GUI. Same hardened privilege model, same
 > `wg`/`wg-quick` coverage — just keyboard-driven.
-
-```
-┌ WireGuard — terminal ───────────────────────────────────────────────────┐
-│  Tunnels │ Log                                                           │
-└──────────────────────────────────────────────────────────────────────────┘
-┌ Tunnels ─────────────┐┌ home-server ───────────────────────────────────┐
-│  ● home-server       ││ Interface                                       │
-│  ○ work-vpn          ││   Status        Active                          │
-│  ○ tokyo-relay       ││   Public key    Hk3pQ2vN8sLrYwZ1aFcJ4mD6tB9…    │
-│  ○ us-east-1         ││   Listen port   51820                           │
-│                      ││   Addresses     10.7.0.2/24, fd00:7::2/64       │
-│                      ││   DNS           1.1.1.1, 1.0.0.1                 │
-│                      ││   Start on boot Yes                             │
-│                      ││                                                 │
-│                      ││ Peer 1                                          │
-│                      ││   Endpoint      vpn.example.com:51820           │
-│                      ││   Latest hs     38 seconds ago                  │
-│                      ││   Transfer      1.24 GiB received, 318 MiB sent │
-└──────────────────────┘└─────────────────────────────────────────────────┘
- ↑↓ move  ⏎/a on·off  e edit  n new  i import  g gen-key  Q qr  x export  q quit
-```
 
 ---
 

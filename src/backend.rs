@@ -211,17 +211,19 @@ fn demo_detail(name: &str) -> Detail {
     }
 }
 
-pub fn list_tunnels() -> Vec<Tunnel> {
+/// List tunnels, surfacing a helper failure so the UI can tell "no tunnels"
+/// apart from "couldn't reach the helper / permission denied".
+pub fn try_list_tunnels() -> Result<Vec<Tunnel>, String> {
     if demo_mode() {
-        return demo_tunnels();
+        return Ok(demo_tunnels());
     }
-    let names = helper(&["list"], None).unwrap_or_default();
+    let names = helper(&["list"], None)?;
     let active: Vec<String> = helper(&["active"], None)
         .unwrap_or_default()
         .split_whitespace()
         .map(|s| s.to_string())
         .collect();
-    names
+    Ok(names
         .lines()
         .map(str::trim)
         .filter(|n| !n.is_empty())
@@ -229,7 +231,11 @@ pub fn list_tunnels() -> Vec<Tunnel> {
             name: n.to_string(),
             active: active.iter().any(|a| a == n),
         })
-        .collect()
+        .collect())
+}
+
+pub fn list_tunnels() -> Vec<Tunnel> {
+    try_list_tunnels().unwrap_or_default()
 }
 
 pub fn tunnel_exists(name: &str) -> bool {
@@ -576,31 +582,64 @@ fn is_wg_key(s: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/')
 }
 
-/// host:port, including bracketed IPv6 `[::1]:51820`.
+/// host:port, including bracketed IPv6 `[::1]:51820`. Bare (unbracketed) IPv6 is
+/// rejected because wg-quick requires brackets; the host charset is validated.
 fn is_endpoint(s: &str) -> bool {
     let s = s.trim();
-    let (host, port) = match s.rsplit_once(':') {
-        Some(hp) => hp,
-        None => return false,
+    let (host, port) = if let Some(rest) = s.strip_prefix('[') {
+        // Bracketed IPv6: must be `[<ipv6>]:port`.
+        let Some((inner, after)) = rest.split_once(']') else {
+            return false;
+        };
+        let Some(port) = after.strip_prefix(':') else {
+            return false;
+        };
+        if inner.parse::<std::net::Ipv6Addr>().is_err() {
+            return false;
+        }
+        (inner, port)
+    } else {
+        match s.rsplit_once(':') {
+            // A bare host containing ':' would be unbracketed IPv6 -> reject.
+            Some((h, p)) if !h.contains(':') => (h, p),
+            _ => return false,
+        }
     };
     if host.is_empty() {
         return false;
     }
-    match port.parse::<u32>() {
-        Ok(p) => (1..=65535).contains(&p),
-        Err(_) => false,
+    // Non-bracketed host is IPv4 or a DNS name: restrict the charset.
+    let host_ok = host.parse::<std::net::Ipv4Addr>().is_ok()
+        || host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+    if !host_ok {
+        return false;
     }
+    matches!(port.parse::<u32>(), Ok(p) if (1..=65535).contains(&p))
 }
 
-/// A loose CIDR / address check: `10.0.0.2/24`, `::1/128`, or a bare IP.
+/// A CIDR / address check via real parsing: `10.0.0.2/24`, `::1/128`, or a bare IP.
 fn looks_like_inet(s: &str) -> bool {
     let s = s.trim();
-    let addr = s.split('/').next().unwrap_or("");
-    !addr.is_empty()
-        && (addr.contains('.') || addr.contains(':'))
-        && addr
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() || c == '.' || c == ':')
+    let (addr, prefix) = match s.split_once('/') {
+        Some((a, p)) => (a, Some(p)),
+        None => (s, None),
+    };
+    let ip: std::net::IpAddr = match addr.parse() {
+        Ok(ip) => ip,
+        Err(_) => return false,
+    };
+    match prefix {
+        None => true,
+        Some(p) => match p.parse::<u8>() {
+            Ok(n) => match ip {
+                std::net::IpAddr::V4(_) => n <= 32,
+                std::net::IpAddr::V6(_) => n <= 128,
+            },
+            Err(_) => false,
+        },
+    }
 }
 
 /// Validate a tunnel config the way the WireGuard tools would expect, so the
@@ -811,7 +850,10 @@ pub fn new_tunnel_template() -> String {
     )
 }
 
-/// Make a safe tunnel/interface name from an imported file name.
+/// Make a safe tunnel/interface name from an imported file name. The result
+/// satisfies the helper's rule (starts with an alphanumeric, then
+/// alphanumeric/_/-/., max 15 chars): truncate first, then trim the ends so a
+/// cut can't re-introduce a trailing dot or a non-alphanumeric leading char.
 pub fn sanitize_name(file_stem: &str) -> String {
     let cleaned: String = file_stem
         .chars()
@@ -823,11 +865,13 @@ pub fn sanitize_name(file_stem: &str) -> String {
             }
         })
         .collect();
-    let trimmed = cleaned.trim_matches('.');
-    let s = if trimmed.is_empty() {
-        "tunnel"
+    let truncated: String = cleaned.chars().take(15).collect();
+    let trimmed = truncated
+        .trim_start_matches(|c: char| !c.is_ascii_alphanumeric())
+        .trim_end_matches('.');
+    if trimmed.is_empty() {
+        "tunnel".to_string()
     } else {
-        trimmed
-    };
-    s.chars().take(15).collect()
+        trimmed.to_string()
+    }
 }
