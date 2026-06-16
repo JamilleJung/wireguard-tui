@@ -23,8 +23,24 @@ over SSH on a minimal server.
 
 </div>
 
-> Sibling project of the desktop GUI. Same hardened privilege model, same
-> `wg`/`wg-quick` coverage — just keyboard-driven.
+> **Prefer a window?** **[wireguard-gui](https://github.com/JamilleJung/wireguard-gui)**
+> is the same tool as a desktop GUI (modelled on the WireGuard for Windows client).
+> Both share the same hardened privilege model and `wg`/`wg-quick` coverage.
+
+---
+
+## ℹ️ Good to know
+
+- **It drives `wg-quick`, not NetworkManager.** Tunnels are plain `.conf` files in
+  `/etc/wireguard`, brought up with `wg-quick up`/`down` — the standard WireGuard
+  path, deliberately bypassing NetworkManager (which has historically mangled
+  `[Peer]` sections).
+- **Start-on-boot needs systemd** — it toggles the `wg-quick@<name>` unit. On
+  non-systemd systems (OpenRC, runit, …) that one feature is unavailable;
+  everything else works.
+- **A QR code — and an exported `.zip` — contains the tunnel's _private key_.**
+  Only show a QR when it's safe for someone to photograph your screen, and keep
+  exports somewhere safe.
 
 ---
 
