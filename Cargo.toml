@@ -1,6 +1,6 @@
 [package]
 name = "wireguard-tui"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2021"
 description = "A native Linux terminal UI (TUI) for managing WireGuard tunnels — the same features as the desktop client, in your terminal."
 license = "MIT"

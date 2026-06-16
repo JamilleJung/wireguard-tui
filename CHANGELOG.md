@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-16
+
+### Fixed
+- `wg-helper`'s `sync` now verifies `wg-quick strip` succeeded before applying it
+  to the live interface — a strip failure previously fed an empty config to
+  `wg syncconf` and could wipe every peer off a running tunnel.
+- Corrected stray "wireguard-gui" wording and the log header in the helper to
+  "wireguard-tui".
+
 ## [1.1.0] - 2026-06-16
 
 ### Added
@@ -45,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Universal installer** (`install.sh`) for apt, dnf/yum, pacman, zypper, apk,
   xbps and eopkg, with a minimal-install dependency check.
 
-[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/JamilleJung/wireguard-tui/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.0.0
