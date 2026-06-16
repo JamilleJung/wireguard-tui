@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.1] - 2026-06-16
 
 ### Fixed
+- **A bracketed-IPv6 `Endpoint`** (e.g. `[2001:db8::1]:51820`) is now accepted by
+  config validation again. The stricter endpoint check added in 1.1.0 wrongly
+  rejected it, which blocked saving/importing IPv6-endpoint tunnels. Covered by a
+  regression test.
 - `wg-helper`'s `sync` now verifies `wg-quick strip` succeeded before applying it
   to the live interface — a strip failure previously fed an empty config to
   `wg syncconf` and could wipe every peer off a running tunnel.
