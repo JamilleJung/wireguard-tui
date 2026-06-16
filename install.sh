@@ -13,6 +13,12 @@
 # needs `wireguard-tools` at runtime and a Rust toolchain + a C linker to build.
 set -euo pipefail
 
+# System tools we rely on (visudo, resolvconf, runuser, ...) live in sbin. A
+# normal user's PATH - which `su` carries into the root re-exec below - often
+# omits sbin, which made `visudo -cf` and the `resolvconf` probe silently fail.
+# Make sure they're findable no matter how we ended up running.
+export PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH"
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -288,7 +294,7 @@ else
         as_root install -m440 "$tmp" "$SUDOERS"
         ok "Passwordless helper set up for $REAL_USER (works even without sudo-group membership)."
     else
-        warn "sudoers validation failed; skipping. Run wg-tui as root, or use --polkit."
+        warn "sudoers validation failed; skipping. Run wg-tui as root, or re-run: ./install.sh --polkit"
     fi
     rm -f "$tmp"
 fi
