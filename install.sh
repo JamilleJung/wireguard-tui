@@ -21,6 +21,8 @@ LIBDIR="$PREFIX/lib/wireguard-tui"
 BIN="$PREFIX/bin/wg-tui"
 HELPER="$LIBDIR/wg-helper"
 DESKTOP="$PREFIX/share/applications/wireguard-tui.desktop"
+ICON_DIR="$PREFIX/share/icons/hicolor/scalable/apps"
+ICON="$ICON_DIR/wireguard-tui.svg"
 SUDOERS="/etc/sudoers.d/wireguard-tui"
 POLKIT_RULE="/etc/polkit-1/rules.d/49-wireguard-tui.rules"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -116,7 +118,7 @@ verify_runtime_deps() {
 
 uninstall() {
     say "Removing wireguard-tui"
-    $SUDO rm -f "$BIN" "$HELPER" "$DESKTOP" "$SUDOERS" "$POLKIT_RULE"
+    $SUDO rm -f "$BIN" "$HELPER" "$DESKTOP" "$ICON" "$SUDOERS" "$POLKIT_RULE"
     $SUDO rmdir "$LIBDIR" 2>/dev/null || true
     ok "Uninstalled. (Your /etc/wireguard configs were left untouched.)"
     exit 0
@@ -140,10 +142,11 @@ say "Building release binary (first build downloads crates, ~1–2 min)"
 ok "Built."
 
 say "Installing into $PREFIX"
-$SUDO install -d "$LIBDIR" "$PREFIX/bin" "$PREFIX/share/applications"
+$SUDO install -d "$LIBDIR" "$PREFIX/bin" "$PREFIX/share/applications" "$ICON_DIR"
 $SUDO install -m755 "$HERE/target/release/wg-tui" "$BIN"
 $SUDO install -m755 "$HERE/packaging/wg-helper" "$HELPER"
 $SUDO install -m644 "$HERE/packaging/wireguard-tui.desktop" "$DESKTOP"
+$SUDO install -m644 "$HERE/packaging/wireguard-tui.svg" "$ICON"
 command -v update-desktop-database >/dev/null 2>&1 && \
     $SUDO update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
 ok "Files installed."

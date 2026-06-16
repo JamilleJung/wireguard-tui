@@ -5,6 +5,6 @@ GenericName=VPN tunnel manager
 Comment=Manage WireGuard tunnels in a terminal UI
 Exec=wg-tui
 Terminal=true
-Icon=network-vpn
+Icon=wireguard-tui
 Categories=Network;System;Utility;
 Keywords=wireguard;vpn;tunnel;wg;

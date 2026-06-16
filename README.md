@@ -109,8 +109,18 @@ wg-tui
 | `Q` | Show the tunnel as a QR code |
 | `x` | Export all tunnels to `~/wireguard-tunnels.zip` |
 | `Tab` | Switch the Tunnels / Log tabs |
+| `m` | Toggle **Easy** / **Advanced** mode |
 | `r` | Refresh now |
 | `?` | Help · `q`/`Esc` Quit |
+
+In the import browser, **Space** marks files for a **bulk import** and **Enter**
+imports all marked ones at once.
+
+**Easy mode** (the default for new users) shows only the everyday actions —
+connect/disconnect, import, start-on-boot, remove and Show-QR — so it's
+approachable for non-technical users. Press **`m`** for Advanced mode (edit, new,
+generate keys, running config, save-live, rename, export); the choice is
+remembered.
 
 The editor uses `$VISUAL`/`$EDITOR` (falling back to `nano`). The temporary file
 it opens is mode `0600` and removed afterwards.

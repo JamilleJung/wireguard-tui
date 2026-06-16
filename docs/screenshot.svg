@@ -1,21 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="991" height="583" viewBox="0 0 991 583" font-family="'JetBrains Mono','DejaVu Sans Mono','Cascadia Code',Consolas,monospace" font-size="15">
 <rect width="991" height="583" rx="8" fill="#181825"/>
-<text x="14.0" y="28.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌ WireGuard — terminal ────────────────────────────────────────────────────────────────────────────────────────┐</text>
+<text x="14.0" y="28.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌ WireGuard - terminal ────────────────────────────────────────────────────────────────────────────────────────┐</text>
 <text x="14.0" y="46.5" fill="#cdd6e4" textLength="17.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ </text>
 <text x="31.2" y="46.5" fill="#cdd6e4" font-weight="700" textLength="77.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> Tunnels </text>
 <text x="108.6" y="46.5" fill="#cdd6e4" textLength="868.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> │  Log                                                                                             │</text>
 <text x="14.0" y="65.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘</text>
 <text x="14.0" y="83.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌ Tunnels ─────────────────┐┌ home-server ─────────────────────────────────────────────────────────────────────┐</text>
 <text x="14.0" y="102.0" fill="#cdd6e4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
-<text x="22.6" y="102.0" fill="#cdd6e4" font-weight="700" textLength="223.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> ● home-server            </text>
+<text x="22.6" y="102.0" fill="#cdd6e4" font-weight="700" textLength="223.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> * home-server            </text>
 <text x="246.2" y="102.0" fill="#cdd6e4" textLength="17.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">││</text>
 <text x="263.4" y="102.0" fill="#cdd6e4" font-weight="700" textLength="77.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Interface</text>
 <text x="340.8" y="102.0" fill="#cdd6e4" textLength="636.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                                                         │</text>
-<text x="14.0" y="120.5" fill="#cdd6e4" textLength="387.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ ○ work-vpn               ││  Status        </text>
+<text x="14.0" y="120.5" fill="#cdd6e4" textLength="387.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ - work-vpn               ││  Status        </text>
 <text x="401.0" y="120.5" fill="#cdd6e4" font-weight="700" textLength="51.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Active</text>
 <text x="452.6" y="120.5" fill="#cdd6e4" textLength="524.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                                            │</text>
-<text x="14.0" y="139.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ ○ tokyo-relay            ││  Public key    Hk3pQ2vN8sLrYwZ1aFcJ4mD6tB9eU0xKgPiR7oVnQ4=                       │</text>
-<text x="14.0" y="157.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ ○ us-east-1              ││  Listen port   51820                                                             │</text>
+<text x="14.0" y="139.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ - tokyo-relay            ││  Public key    Hk3pQ2vN8sLrYwZ1aFcJ4mD6tB9eU0xKgPiR7oVnQ4=                       │</text>
+<text x="14.0" y="157.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ - us-east-1              ││  Listen port   51820                                                             │</text>
 <text x="14.0" y="176.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  Addresses     10.7.0.2/24, fd00:7::2/64                                         │</text>
 <text x="14.0" y="194.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  DNS           1.1.1.1, 1.0.0.1                                                  │</text>
 <text x="14.0" y="213.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  Start on boot Yes                                                               │</text>
@@ -39,5 +39,5 @@
 <text x="14.0" y="509.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
 <text x="14.0" y="527.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
 <text x="14.0" y="546.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">└──────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────┘</text>
-<text x="14.0" y="564.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> ↑↓ move  ⏎ on/off  e edit  n new  i import  d del  Q qr  Tab log  ? help  q quit                               </text>
+<text x="14.0" y="564.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> Up/Dn move  Enter/a connect/disconnect  i import  s on-boot  d remove  Q qr  Tab log  m advanced  ? help  q qui</text>
 </svg>
