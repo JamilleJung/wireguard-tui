@@ -142,6 +142,10 @@ wg-tui setup     # guided, confirmation-based fix (e.g. installs wireguard-tools
 > `wg`/`wg-quick`. It uses your distro's `wireguard-tools` (the `.deb`/AUR/COPR
 > packages depend on it; the tarball needs it present).
 
+See **[docs/DISTROS.md](docs/DISTROS.md)** for a per-distro guide: what to install,
+what to set up, what survives a reboot, and when (only as a server/gateway) you need
+firewall and IP-forwarding changes.
+
 ---
 
 ## 🔐 How privilege works
