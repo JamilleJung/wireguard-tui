@@ -84,6 +84,11 @@ struct App {
     quit: bool,
     /// Easy mode hides expert actions for everyday users (toggle with `m`).
     easy: bool,
+    /// Live throughput (bytes/sec) for the selected tunnel + the last sample it
+    /// was derived from (name, rx, tx, when) so deltas reset on a new selection.
+    rate_rx: u64,
+    rate_tx: u64,
+    prev_sample: Option<(String, u64, u64, Instant)>,
     // Shared with the background poller thread (off-UI-thread live refresh).
     poll_in: Arc<Mutex<PollIn>>,
     poll_out: Arc<Mutex<Option<Snapshot>>>,
@@ -103,6 +108,9 @@ impl App {
             mode: Mode::Normal,
             quit: false,
             easy: load_easy(),
+            rate_rx: 0,
+            rate_tx: 0,
+            prev_sample: None,
             poll_in: Arc::new(Mutex::new(PollIn::default())),
             poll_out: Arc::new(Mutex::new(None)),
         };
@@ -150,11 +158,38 @@ impl App {
         // Only apply detail that still matches the current selection.
         if let Some((name, d)) = snap.detail {
             if Some(&name) == self.selected_name().as_ref() {
+                let (rx, tx) = (d.rx_bytes, d.tx_bytes);
                 self.detail = Some(d);
+                self.update_speed(&name, rx, tx);
             }
         }
         if let Some(log) = snap.log {
             self.log = log;
+        }
+    }
+
+    /// Compute live throughput (bytes/sec) from successive samples of the same
+    /// tunnel; reset when the selection changes or on the first sample.
+    fn update_speed(&mut self, name: &str, rx: u64, tx: u64) {
+        let now = Instant::now();
+        let same = self
+            .prev_sample
+            .as_ref()
+            .map(|(n, _, _, _)| n == name)
+            .unwrap_or(false);
+        if same {
+            let (_, prx, ptx, pt) = self.prev_sample.as_ref().unwrap();
+            let (prx, ptx, pt) = (*prx, *ptx, *pt);
+            let dt = now.duration_since(pt).as_secs_f64();
+            if dt >= 0.3 {
+                self.rate_rx = (rx.saturating_sub(prx) as f64 / dt) as u64;
+                self.rate_tx = (tx.saturating_sub(ptx) as f64 / dt) as u64;
+                self.prev_sample = Some((name.to_string(), rx, tx, now));
+            }
+        } else {
+            self.rate_rx = 0;
+            self.rate_tx = 0;
+            self.prev_sample = Some((name.to_string(), rx, tx, now));
         }
     }
 
@@ -184,6 +219,10 @@ impl App {
 
     fn load_detail(&mut self) {
         self.detail = self.selected_name().map(|n| backend::get_detail(&n));
+        if let Some(d) = &self.detail {
+            let (n, rx, tx) = (d.name.clone(), d.rx_bytes, d.tx_bytes);
+            self.update_speed(&n, rx, tx);
+        }
     }
 
     /// Periodic refresh: live status, and the log if that tab is open.
@@ -311,6 +350,31 @@ fn flash_now(
 }
 
 fn main() -> io::Result<()> {
+    // Handle --version/--help before touching the terminal, so they work in
+    // scripts and don't accidentally launch the full-screen UI.
+    if let Some(arg) = std::env::args().nth(1) {
+        match arg.as_str() {
+            "-V" | "--version" => {
+                println!("wg-tui {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+            "-h" | "--help" => {
+                println!(
+                    "wg-tui {} - a terminal UI for managing WireGuard tunnels\n\n\
+                     Usage: wg-tui            launch the interactive UI\n       \
+                     wg-tui --version    print the version\n       \
+                     wg-tui --help       show this help\n\n\
+                     Inside the app, press '?' for the full key map.",
+                    env!("CARGO_PKG_VERSION")
+                );
+                return Ok(());
+            }
+            other => {
+                eprintln!("wg-tui: unknown argument '{other}' (try --help)");
+                std::process::exit(2);
+            }
+        }
+    }
     backend::init();
     let mut terminal = ratatui::init();
     let res = run(&mut terminal);
@@ -1276,6 +1340,32 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
             Span::styled("  Status        ", Style::default().fg(Color::DarkGray)),
             Span::styled(st, Style::default().fg(sc).bold()),
         ]));
+        if d.active {
+            // Connection health from the most recent handshake.
+            let (htxt, hc) = match d.handshake_age {
+                Some(s) if s < 180 => (
+                    format!("OK (last handshake {} ago)", fmt_ago(s)),
+                    Color::Green,
+                ),
+                Some(s) => (
+                    format!("stale (last handshake {} ago)", fmt_ago(s)),
+                    Color::Yellow,
+                ),
+                None => ("waiting for handshake...".to_string(), Color::Yellow),
+            };
+            lines.push(Line::from(vec![
+                Span::styled("  Connection    ", Style::default().fg(Color::DarkGray)),
+                Span::styled(htxt, Style::default().fg(hc)),
+            ]));
+            lines.push(kv(
+                "Speed",
+                &format!(
+                    "down {}/s   up {}/s",
+                    backend::fmt_bytes(app.rate_rx),
+                    backend::fmt_bytes(app.rate_tx)
+                ),
+            ));
+        }
         lines.push(kv("Public key", &dash(&d.public_key)));
         lines.push(kv("Listen port", &dash(&d.listen_port)));
         lines.push(kv("Addresses", &dash(&d.addresses)));
@@ -1311,6 +1401,17 @@ fn dash(s: &str) -> String {
         "-".to_string()
     } else {
         s.to_string()
+    }
+}
+
+/// Compact "seconds ago" → "12s" / "3m" / "2h".
+fn fmt_ago(s: u64) -> String {
+    if s < 60 {
+        format!("{s}s")
+    } else if s < 3600 {
+        format!("{}m", s / 60)
+    } else {
+        format!("{}h", s / 3600)
     }
 }
 

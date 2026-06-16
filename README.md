@@ -178,11 +178,9 @@ one safely or hand it to a phone.
 
 ```sh
 cargo build --release        # ./target/release/wg-tui
-WGTUI_DEMO=1 cargo run        # demo mode: sample tunnels, no root, no real configs
+cargo test                   # unit tests (parsing, validation, names)
+./target/release/wg-tui --version
 ```
-
-`WGTUI_DEMO=1` (or `WGGUI_DEMO=1`) shows polished sample data — handy for
-screenshots and for trying the UI without touching `/etc/wireguard`.
 
 ---
 
