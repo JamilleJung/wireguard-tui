@@ -383,10 +383,63 @@ fn run_doctor() -> i32 {
     report.exit_code()
 }
 
+/// Offer to run a privileged install command after confirmation, picking a
+/// privilege method that works here (root / sudo / su). Debian-minimal often has
+/// no sudo, so fall back to `su` (asks for the ROOT password). `label` names what
+/// is installed; `hint` is the manual fallback to print on skip/failure.
+fn offer_root_install(label: &str, cmd: &str, hint: &str) {
+    use std::io::Write as _;
+    let is_root = unsafe { libc::geteuid() } == 0;
+    let method = if is_root {
+        "root"
+    } else if doctor::which("sudo") {
+        "sudo"
+    } else if doctor::which("su") {
+        "su"
+    } else {
+        "none"
+    };
+    if method == "none" {
+        println!("{label} can't be installed automatically (neither sudo nor su is available).");
+        println!("Install it as root, e.g.: {hint}");
+        return;
+    }
+    let shown = match method {
+        "root" => format!("sh -c '{cmd}'"),
+        "sudo" => format!("sudo sh -c '{cmd}'"),
+        _ => format!("su root -c '{cmd}'   (asks for the ROOT password)"),
+    };
+    println!("{label} can be installed with:");
+    println!("    {shown}");
+    print!("Install now? [y/N] ");
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    if std::io::stdin().read_line(&mut line).is_ok() && line.trim().eq_ignore_ascii_case("y") {
+        let status = match method {
+            "root" => std::process::Command::new("sh").arg("-c").arg(cmd).status(),
+            "sudo" => std::process::Command::new("sudo")
+                .arg("sh")
+                .arg("-c")
+                .arg(cmd)
+                .status(),
+            _ => std::process::Command::new("su")
+                .arg("root")
+                .arg("-c")
+                .arg(cmd)
+                .status(),
+        };
+        match status {
+            Ok(s) if s.success() => println!("Done."),
+            _ => println!("Install didn't complete. Run it manually: {hint}"),
+        }
+    } else {
+        println!("Skipped. Install manually: {hint}");
+    }
+}
+
 /// `wg-tui setup` - guided, confirmation-based fix for missing requirements.
 /// Never connects tunnels or enables start-on-boot.
 fn run_setup() -> i32 {
-    use std::io::Write as _;
     let report = doctor::system_check();
     println!("wg-tui setup\n");
     for c in &report.checks {
@@ -401,44 +454,28 @@ fn run_setup() -> i32 {
         .any(|c| c.name.starts_with("WireGuard tools") && !matches!(c.status, doctor::Status::Ok));
     if tools_missing {
         if let Some(cmd) = doctor::install_tools_command() {
-            let sudo = if doctor::which("sudo") { "sudo " } else { "" };
-            println!("WireGuard tools are missing. I can install them with:");
-            println!("    {sudo}sh -c '{cmd}'");
-            print!("Install now? [y/N] ");
-            let _ = std::io::stdout().flush();
-            let mut line = String::new();
-            if std::io::stdin().read_line(&mut line).is_ok()
-                && line.trim().eq_ignore_ascii_case("y")
-            {
-                let status = if sudo.is_empty() {
-                    std::process::Command::new("sh")
-                        .arg("-c")
-                        .arg(&cmd)
-                        .status()
-                } else {
-                    std::process::Command::new("sudo")
-                        .arg("sh")
-                        .arg("-c")
-                        .arg(&cmd)
-                        .status()
-                };
-                match status {
-                    Ok(s) if s.success() => println!("Done. Re-run `wg-tui doctor` to confirm."),
-                    _ => println!(
-                        "Install didn't complete. Run it manually: {}",
-                        doctor::install_tools_hint()
-                    ),
-                }
-            } else {
-                println!(
-                    "Skipped. Install manually: {}",
-                    doctor::install_tools_hint()
-                );
-            }
+            println!("WireGuard tools (wg/wg-quick) are missing.");
+            offer_root_install("WireGuard tools", &cmd, &doctor::install_tools_hint());
         } else {
             println!("Couldn't detect a package manager - install 'wireguard-tools' manually.");
         }
         println!();
+    }
+
+    // Offer a resolvconf provider so tunnels with a 'DNS =' line can connect -
+    // the classic minimal-Debian gap (wg-quick aborts with "resolvconf: command
+    // not found"). systemd-resolved counts, so this only fires when neither is
+    // present. Non-critical: tunnels without a DNS line work regardless.
+    if !doctor::dns_ok() {
+        if let Some(cmd) = doctor::install_resolvconf_command() {
+            println!("Tunnels with a 'DNS =' line need a resolvconf provider (none found here).");
+            offer_root_install(
+                "A resolvconf provider",
+                &cmd,
+                &doctor::install_resolvconf_hint(),
+            );
+            println!();
+        }
     }
 
     // Helper install can't be done safely from here - point at the installer.
@@ -820,7 +857,16 @@ fn toggle_active(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::
             "{} {name}",
             if active { "Deactivated" } else { "Activated" }
         )),
-        Err(e) => app.flash(format!("Failed: {e}")),
+        Err(e) => {
+            // Map common, cryptic failures (e.g. missing resolvconf) to a clear
+            // fix; show recognised ones in a popup, the rest in the footer.
+            let fe = doctor::friendly_error(&e);
+            if fe == e.trim() {
+                app.flash(format!("Failed: {fe}"));
+            } else {
+                app.mode = Mode::Message(format!("Couldn't activate {name}:\n\n{fe}"));
+            }
+        }
     }
     app.reload();
     Ok(())

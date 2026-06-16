@@ -56,11 +56,28 @@ die()  { printf "${R}✗ %s${N}\n" "$*" >&2; exit 1; }
 # ---------------------------------------------------------------------------
 # Privilege helper
 # ---------------------------------------------------------------------------
+HAVE_SUDO=0
+command -v sudo >/dev/null 2>&1 && HAVE_SUDO=1
 if [ "$(id -u)" -eq 0 ]; then
-    SUDO=""; REAL_USER="${SUDO_USER:-root}"
+    as_root() { "$@"; }                                  # already root
+    REAL_USER="${SUDO_USER:-root}"
+elif [ "$HAVE_SUDO" -eq 1 ]; then
+    as_root() { sudo "$@"; }
+    REAL_USER="$USER"
+elif command -v su >/dev/null 2>&1; then
+    # Debian-minimal usually has no sudo - fall back to `su` (asks for the ROOT
+    # password). Tip: running this as root ('su -' first) avoids repeat prompts.
+    warn "sudo not found - using 'su' (you'll be asked for the ROOT password)."
+    as_root() { su root -c "$(printf '%q ' "$@")"; }
+    REAL_USER="$USER"
 else
-    command -v sudo >/dev/null 2>&1 || die "Need root or sudo to install. Re-run as root."
-    SUDO="sudo"; REAL_USER="$USER"
+    die "Need root. Re-run as root ('su -' then ./install.sh) or install sudo first."
+fi
+
+# A sudoers drop-in is useless without sudo; install a polkit rule instead.
+if [ "$HAVE_SUDO" -eq 0 ] && [ "$AUTH_MODE" = "sudoers" ]; then
+    warn "sudo isn't installed - using a polkit rule for passwordless privilege."
+    AUTH_MODE="polkit"
 fi
 
 # ---------------------------------------------------------------------------
@@ -75,14 +92,14 @@ done
 install_pkgs() {
     say "Installing runtime + build dependencies"
     case "$PM" in
-        apt-get) $SUDO apt-get update -qq
-                 $SUDO apt-get install -y wireguard-tools build-essential curl ca-certificates ;;
-        dnf|yum) $SUDO "$PM" install -y wireguard-tools gcc curl ca-certificates ;;
-        pacman)  $SUDO pacman -Sy --noconfirm --needed wireguard-tools base-devel curl ;;
-        zypper)  $SUDO zypper --non-interactive install wireguard-tools gcc curl ca-certificates ;;
-        apk)     $SUDO apk add --no-cache wireguard-tools build-base curl ;;
-        xbps-install) $SUDO xbps-install -Sy wireguard-tools base-devel curl ;;
-        eopkg)   $SUDO eopkg install -y wireguard-tools gcc curl ;;
+        apt-get) as_root apt-get update -qq
+                 as_root apt-get install -y wireguard-tools build-essential curl ca-certificates ;;
+        dnf|yum) as_root "$PM" install -y wireguard-tools gcc curl ca-certificates ;;
+        pacman)  as_root pacman -Sy --noconfirm --needed wireguard-tools base-devel curl ;;
+        zypper)  as_root zypper --non-interactive install wireguard-tools gcc curl ca-certificates ;;
+        apk)     as_root apk add --no-cache wireguard-tools build-base curl ;;
+        xbps-install) as_root xbps-install -Sy wireguard-tools base-devel curl ;;
+        eopkg)   as_root eopkg install -y wireguard-tools gcc curl ;;
         *) warn "Unknown package manager — make sure 'wireguard-tools', a C compiler and curl are installed." ;;
     esac
     ok "Dependencies installed."
@@ -116,10 +133,34 @@ verify_runtime_deps() {
         || warn "wireguard-tools (wg/wg-quick) not found — the app needs them at runtime."
 }
 
+# wg-quick needs a resolvconf provider to apply a config's `DNS =` line. Install
+# one (best-effort) when it's missing and systemd-resolved isn't handling DNS -
+# the fix for minimal Debian, where tunnels with DNS= otherwise fail to connect.
+ensure_resolvconf() {
+    command -v resolvconf >/dev/null 2>&1 && return 0
+    [ -d /run/systemd/resolve ] && return 0   # systemd-resolved already handles DNS=
+    say "Installing a resolvconf provider (so tunnels with 'DNS =' can connect)"
+    case "$PM" in
+        apt-get)      as_root apt-get install -y openresolv || true ;;
+        dnf|yum)      as_root "$PM" install -y openresolv || true ;;
+        pacman)       as_root pacman -Sy --noconfirm openresolv || true ;;
+        zypper)       as_root zypper --non-interactive install openresolv || true ;;
+        apk)          as_root apk add openresolv || true ;;
+        xbps-install) as_root xbps-install -Sy openresolv || true ;;
+        eopkg)        as_root eopkg install -y openresolv || true ;;
+    esac
+    if command -v resolvconf >/dev/null 2>&1; then
+        ok "resolvconf provider installed."
+    else
+        warn "Could not install a resolvconf provider; tunnels with a 'DNS =' line"
+        warn "may fail until you install 'openresolv' (or use systemd-resolved)."
+    fi
+}
+
 uninstall() {
     say "Removing wireguard-tui"
-    $SUDO rm -f "$BIN" "$HELPER" "$DESKTOP" "$ICON" "$SUDOERS" "$POLKIT_RULE"
-    $SUDO rmdir "$LIBDIR" 2>/dev/null || true
+    as_root rm -f "$BIN" "$HELPER" "$DESKTOP" "$ICON" "$SUDOERS" "$POLKIT_RULE"
+    as_root rmdir "$LIBDIR" 2>/dev/null || true
     ok "Uninstalled. (Your /etc/wireguard configs were left untouched.)"
     exit 0
 }
@@ -135,6 +176,7 @@ install_pkgs
 ensure_rust
 verify_build_deps
 verify_runtime_deps
+ensure_resolvconf
 
 say "Building release binary (first build downloads crates, ~1–2 min)"
 ( cd "$HERE" && cargo build --release )
@@ -142,13 +184,13 @@ say "Building release binary (first build downloads crates, ~1–2 min)"
 ok "Built."
 
 say "Installing into $PREFIX"
-$SUDO install -d "$LIBDIR" "$PREFIX/bin" "$PREFIX/share/applications" "$ICON_DIR"
-$SUDO install -m755 "$HERE/target/release/wg-tui" "$BIN"
-$SUDO install -m755 "$HERE/packaging/wg-helper" "$HELPER"
-$SUDO install -m644 "$HERE/packaging/wireguard-tui.desktop" "$DESKTOP"
-$SUDO install -m644 "$HERE/packaging/wireguard-tui.svg" "$ICON"
+as_root install -d "$LIBDIR" "$PREFIX/bin" "$PREFIX/share/applications" "$ICON_DIR"
+as_root install -m755 "$HERE/target/release/wg-tui" "$BIN"
+as_root install -m755 "$HERE/packaging/wg-helper" "$HELPER"
+as_root install -m644 "$HERE/packaging/wireguard-tui.desktop" "$DESKTOP"
+as_root install -m644 "$HERE/packaging/wireguard-tui.svg" "$ICON"
 command -v update-desktop-database >/dev/null 2>&1 && \
-    $SUDO update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
+    as_root update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
 ok "Files installed."
 
 # ---------------------------------------------------------------------------
@@ -156,15 +198,15 @@ ok "Files installed."
 # ---------------------------------------------------------------------------
 if [ "$AUTH_MODE" = "polkit" ]; then
     say "Installing polkit rule (passwordless for active local sessions)"
-    $SUDO install -d /etc/polkit-1/rules.d
-    $SUDO install -m644 "$HERE/packaging/49-wireguard-tui.rules" "$POLKIT_RULE"
+    as_root install -d /etc/polkit-1/rules.d
+    as_root install -m644 "$HERE/packaging/49-wireguard-tui.rules" "$POLKIT_RULE"
     ok "polkit rule installed."
 else
     say "Installing sudoers drop-in (passwordless wg-helper for $REAL_USER)"
     tmp="$(mktemp)"
     printf '%s ALL=(root) NOPASSWD: %s\n' "$REAL_USER" "$HELPER" > "$tmp"
-    if $SUDO visudo -cf "$tmp" >/dev/null 2>&1; then
-        $SUDO install -m440 "$tmp" "$SUDOERS"
+    if as_root visudo -cf "$tmp" >/dev/null 2>&1; then
+        as_root install -m440 "$tmp" "$SUDOERS"
         ok "sudoers drop-in installed."
     else
         warn "sudoers validation failed; skipping. You'll be prompted by pkexec instead."
