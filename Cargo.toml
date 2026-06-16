@@ -1,0 +1,43 @@
+[package]
+name = "wireguard-tui"
+version = "1.0.0"
+edition = "2021"
+description = "A native Linux terminal UI (TUI) for managing WireGuard tunnels — the same features as the desktop client, in your terminal."
+license = "MIT"
+repository = "https://github.com/JamilleJung/wireguard-tui"
+readme = "README.md"
+
+[[bin]]
+name = "wg-tui"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+libc = "0.2"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+qrcode = { version = "0.14", default-features = false }
+rqrr = "0.10"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+
+# `cargo deb` packaging — installs to /usr and uses the polkit rule for auth.
+[package.metadata.deb]
+maintainer = "jamillejung <izeystudio@gmail.com>"
+copyright = "2026 wireguard-tui contributors"
+license-file = ["LICENSE", "0"]
+section = "net"
+priority = "optional"
+extended-description = "A native Linux terminal UI (TUI) for managing WireGuard tunnels: tunnel list, live status, activate/deactivate, import, an editor, key generation and QR display — entirely in the terminal."
+depends = "$auto, wireguard-tools, polkit-1 | policykit-1"
+assets = [
+    ["target/release/wg-tui", "usr/bin/", "755"],
+    ["packaging/wg-helper", "usr/lib/wireguard-tui/wg-helper", "755"],
+    ["packaging/49-wireguard-tui.rules", "etc/polkit-1/rules.d/", "644"],
+    ["README.md", "usr/share/doc/wireguard-tui/README.md", "644"],
+]
