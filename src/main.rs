@@ -392,7 +392,7 @@ fn offer_root_install(label: &str, cmd: &str, hint: &str) {
     let is_root = unsafe { libc::geteuid() } == 0;
     let method = if is_root {
         "root"
-    } else if doctor::which("sudo") {
+    } else if doctor::can_sudo() {
         "sudo"
     } else if doctor::which("su") {
         "su"
