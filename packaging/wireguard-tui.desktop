@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=WireGuard (terminal)
+GenericName=VPN tunnel manager
+Comment=Manage WireGuard tunnels in a terminal UI
+Exec=wg-tui
+Terminal=true
+Icon=network-vpn
+Categories=Network;System;Utility;
+Keywords=wireguard;vpn;tunnel;wg;

@@ -1,0 +1,6 @@
+/target
+*.swp
+
+# Never commit real WireGuard configs / keys.
+*.conf
+*.key
