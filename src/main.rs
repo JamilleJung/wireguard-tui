@@ -3,6 +3,7 @@
 //! key generation, QR, export, start-on-boot), driven entirely by the keyboard.
 
 mod backend;
+mod doctor;
 
 use std::io;
 use std::io::Write as _;
@@ -120,6 +121,17 @@ impl App {
             app.load_detail();
         }
         app.sync_poll_in();
+        // Friendly first-run hint if something critical is missing (cheap check,
+        // no sudo). Any key dismisses it.
+        let blockers = doctor::critical_blockers();
+        if !blockers.is_empty() {
+            let mut msg = String::from("Setup needed before you can manage tunnels:\n\n");
+            for b in &blockers {
+                msg.push_str(&format!("  - {b}\n"));
+            }
+            msg.push_str("\nRun  wg-tui doctor  for a full checklist, or  wg-tui setup  to fix.");
+            app.mode = Mode::Message(msg);
+        }
         app
     }
 
@@ -349,6 +361,101 @@ fn flash_now(
     Ok(())
 }
 
+/// `wg-tui doctor` - print a system checklist; exit 0 (ok) / 1 (warnings) /
+/// 2 (critical missing). Read-only.
+fn run_doctor() -> i32 {
+    let report = doctor::system_check();
+    println!("wg-tui doctor\n");
+    for c in &report.checks {
+        println!("  [{:<7}] {}: {}", c.status.label(), c.name, c.detail);
+        if !matches!(c.status, doctor::Status::Ok) {
+            if let Some(fix) = &c.fix {
+                println!("            fix: {fix}");
+            }
+        }
+    }
+    println!();
+    match report.exit_code() {
+        0 => println!("All good - you're ready to import or create a tunnel."),
+        1 => println!("Usable, with the warnings above. `wg-tui setup` can help."),
+        _ => println!("Something critical is missing - run `wg-tui setup` or use the fixes above."),
+    }
+    report.exit_code()
+}
+
+/// `wg-tui setup` - guided, confirmation-based fix for missing requirements.
+/// Never connects tunnels or enables start-on-boot.
+fn run_setup() -> i32 {
+    use std::io::Write as _;
+    let report = doctor::system_check();
+    println!("wg-tui setup\n");
+    for c in &report.checks {
+        println!("  [{:<7}] {}: {}", c.status.label(), c.name, c.detail);
+    }
+    println!();
+
+    // Offer to install wireguard-tools if missing (with confirmation).
+    let tools_missing = report
+        .checks
+        .iter()
+        .any(|c| c.name.starts_with("WireGuard tools") && !matches!(c.status, doctor::Status::Ok));
+    if tools_missing {
+        if let Some(cmd) = doctor::install_tools_command() {
+            let sudo = if doctor::which("sudo") { "sudo " } else { "" };
+            println!("WireGuard tools are missing. I can install them with:");
+            println!("    {sudo}sh -c '{cmd}'");
+            print!("Install now? [y/N] ");
+            let _ = std::io::stdout().flush();
+            let mut line = String::new();
+            if std::io::stdin().read_line(&mut line).is_ok()
+                && line.trim().eq_ignore_ascii_case("y")
+            {
+                let status = if sudo.is_empty() {
+                    std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg(&cmd)
+                        .status()
+                } else {
+                    std::process::Command::new("sudo")
+                        .arg("sh")
+                        .arg("-c")
+                        .arg(&cmd)
+                        .status()
+                };
+                match status {
+                    Ok(s) if s.success() => println!("Done. Re-run `wg-tui doctor` to confirm."),
+                    _ => println!(
+                        "Install didn't complete. Run it manually: {}",
+                        doctor::install_tools_hint()
+                    ),
+                }
+            } else {
+                println!(
+                    "Skipped. Install manually: {}",
+                    doctor::install_tools_hint()
+                );
+            }
+        } else {
+            println!("Couldn't detect a package manager - install 'wireguard-tools' manually.");
+        }
+        println!();
+    }
+
+    // Helper install can't be done safely from here - point at the installer.
+    let helper_missing = report
+        .checks
+        .iter()
+        .any(|c| c.name == "Privileged helper" && !matches!(c.status, doctor::Status::Ok));
+    if helper_missing {
+        println!("The privileged helper isn't installed. Install the packaged build");
+        println!("(.deb / AUR / COPR) or run ./install.sh from the source tree.");
+        println!();
+    }
+
+    println!("Setup never connects tunnels or enables start-on-boot - you stay in control.");
+    doctor::system_check().exit_code()
+}
+
 fn main() -> io::Result<()> {
     // Handle --version/--help before touching the terminal, so they work in
     // scripts and don't accidentally launch the full-screen UI.
@@ -362,6 +469,8 @@ fn main() -> io::Result<()> {
                 println!(
                     "wg-tui {} - a terminal UI for managing WireGuard tunnels\n\n\
                      Usage: wg-tui            launch the interactive UI\n       \
+                     wg-tui doctor       check your system and print a checklist\n       \
+                     wg-tui setup        guided fix for anything missing\n       \
                      wg-tui --version    print the version\n       \
                      wg-tui --help       show this help\n\n\
                      Inside the app, press '?' for the full key map.",
@@ -369,6 +478,8 @@ fn main() -> io::Result<()> {
                 );
                 return Ok(());
             }
+            "doctor" => std::process::exit(run_doctor()),
+            "setup" => std::process::exit(run_setup()),
             other => {
                 eprintln!("wg-tui: unknown argument '{other}' (try --help)");
                 std::process::exit(2);
@@ -1387,7 +1498,23 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
             lines.push(kv("Transfer", &dash(&p.transfer)));
         }
     } else {
-        lines.push(Line::from("No tunnels yet - press 'n' to create one."));
+        lines.push(Line::from(Span::styled(
+            "No tunnels yet",
+            Style::default().fg(Color::Cyan).bold(),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(
+            "Import a WireGuard .conf file or a QR-code image to begin:",
+        ));
+        lines.push(Line::from(""));
+        lines.push(Line::from("  i   Import a .conf file or QR image"));
+        if !app.easy {
+            lines.push(Line::from("  n   Create a new tunnel from scratch"));
+        } else {
+            lines.push(Line::from(
+                "  (press  m  for Advanced mode to create one from scratch)",
+            ));
+        }
     }
 
     let p = Paragraph::new(lines)
