@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-17
+
+### Added
+- **Live throughput** — the detail view shows real-time **down/up speed** for the
+  selected tunnel, plus a **Connection** health line derived from the most recent
+  handshake (OK / stale / waiting).
+- **`wg-tui --version` / `--help`** — flags now print and exit instead of
+  launching the full-screen UI.
+
+### Changed
+- **Removed demo mode** (`WGTUI_DEMO`) — the app always talks to real tunnels.
+- The privileged helper now **bounds every `wg`/`wg-quick` call with a timeout**,
+  so a hang (DNS, a stuck `PostUp`, a wedged interface) can't lock up the app.
+- CI now runs a **smoke test** (`--version`/`--help` start and exit cleanly).
+
 ## [1.3.5] - 2026-06-17
 
 ### Added
@@ -115,7 +130,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Universal installer** (`install.sh`) for apt, dnf/yum, pacman, zypper, apk,
   xbps and eopkg, with a minimal-install dependency check.
 
-[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.3.5...HEAD
+[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/JamilleJung/wireguard-tui/compare/v1.3.5...v1.4.0
 [1.3.5]: https://github.com/JamilleJung/wireguard-tui/compare/v1.3.4...v1.3.5
 [1.3.4]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.2...v1.3.4
 [1.1.2]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.1...v1.1.2

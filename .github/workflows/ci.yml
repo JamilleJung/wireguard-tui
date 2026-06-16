@@ -33,6 +33,11 @@ jobs:
       - name: Build (release)
         run: cargo build --release
 
+      - name: Smoke test (binary starts & parses args)
+        run: |
+          ./target/release/wg-tui --version | grep -q '^wg-tui '
+          ./target/release/wg-tui --help >/dev/null
+
       - name: Shell lint the helper & installer
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
