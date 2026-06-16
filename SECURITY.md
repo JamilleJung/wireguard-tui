@@ -89,9 +89,14 @@ tunnels whose source you trust.
 ## Supply chain & verifying a download
 
 - Third-party GitHub Actions are pinned to commit SHAs.
-- Each release ships a `SHA256SUMS` file. Verify a download with:
+- Each release ships a `SHA256SUMS` file, **signed with minisign**
+  (`SHA256SUMS.minisig`); the public key (`minisign.pub`) is committed in this
+  repo and attached to every release. Verify with:
 
 ```sh
+# 1) check the signature on the checksum file
+minisign -Vm SHA256SUMS -P RWTyrstfFCLYkpMwbcyBRl+aGGcJikl35GY1esJDO6HTEJFIMvUC8f1Q
+# 2) then verify the artifacts against it
 sha256sum -c SHA256SUMS
 ```
 

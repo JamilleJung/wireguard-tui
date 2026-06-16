@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-06-16
+
+### Changed
+- **Release pipeline hardened to match the desktop client.** The `.deb` is now
+  mandatory (a missing one fails the release), `SHA256SUMS` is generated with
+  `nullglob` and verified non-empty, and it is **signed with minisign** —
+  `SHA256SUMS.minisig` and `minisign.pub` now ship with every release.
+- The privileged helper is also discovered **next to the binary**, so an
+  extracted release tarball works without first running `install.sh`.
+- CI now **hard-fails on `shellcheck` warnings** for `wg-helper` and `install.sh`.
+
 ## [1.1.1] - 2026-06-16
 
 ### Fixed
@@ -77,7 +88,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Universal installer** (`install.sh`) for apt, dnf/yum, pacman, zypper, apk,
   xbps and eopkg, with a minimal-install dependency check.
 
-[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/JamilleJung/wireguard-tui/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.0.0
