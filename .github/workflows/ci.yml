@@ -37,6 +37,11 @@ jobs:
         run: |
           ./target/release/wg-tui --version | grep -q '^wg-tui '
           ./target/release/wg-tui --help >/dev/null
+          # `doctor` must print the checklist and exit with a valid code
+          # (0/1/2), never crash — regardless of what the runner has installed.
+          out="$(./target/release/wg-tui doctor)" && rc=0 || rc=$?
+          echo "$out" | grep -q 'WireGuard tools'
+          test "$rc" -le 2
 
       - name: Shell lint the helper & installer
         run: |

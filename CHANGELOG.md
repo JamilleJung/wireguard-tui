@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-17
+
+### Added
+- **`wg-tui doctor`** - prints a plain-language system checklist (WireGuard
+  tools, the privileged helper + authorization, `/etc/wireguard`, systemd,
+  journald) and exits **0** (all OK) / **1** (warnings) / **2** (critical
+  missing). Read-only; perfect over SSH.
+- **`wg-tui setup`** - a guided, confirmation-based fix: offers to install
+  `wireguard-tools` via your package manager and points you at the installer for
+  the helper. Never connects tunnels or enables start-on-boot.
+- A friendly **first-run hint** inside the app when something critical is
+  missing, and a **beginner empty state** ("Import a .conf or QR image to begin")
+  that adapts to Easy/Advanced mode.
+
+### Notes
+- The app **does not bundle WireGuard kernel modules or `wg`/`wg-quick`** - it
+  uses your system's `wireguard-tools`, and helps you install them.
+
 ## [1.4.1] - 2026-06-17
 
 ### Added
@@ -139,7 +157,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Universal installer** (`install.sh`) for apt, dnf/yum, pacman, zypper, apk,
   xbps and eopkg, with a minimal-install dependency check.
 
-[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/JamilleJung/wireguard-tui/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/JamilleJung/wireguard-tui/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/JamilleJung/wireguard-tui/compare/v1.3.5...v1.4.0
 [1.3.5]: https://github.com/JamilleJung/wireguard-tui/compare/v1.3.4...v1.3.5

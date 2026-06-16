@@ -126,6 +126,22 @@ remembered.
 The editor uses `$VISUAL`/`$EDITOR` (falling back to `nano`). The temporary file
 it opens is mode `0600` and removed afterwards.
 
+### First run / troubleshooting
+
+Not sure your system is ready? Run the doctor (read-only, no root needed):
+
+```sh
+wg-tui doctor    # checklist; exit 0 = OK, 1 = warnings, 2 = something critical missing
+wg-tui setup     # guided, confirmation-based fix (e.g. installs wireguard-tools)
+```
+
+`wg-tui doctor` is ideal over SSH - it tells you exactly what's missing
+(WireGuard tools, the helper, authorization, `/etc/wireguard`, systemd, journald).
+
+> **It does not bundle WireGuard itself** - no kernel modules, no vendored
+> `wg`/`wg-quick`. It uses your distro's `wireguard-tools` (the `.deb`/AUR/COPR
+> packages depend on it; the tarball needs it present).
+
 ---
 
 ## 🔐 How privilege works
