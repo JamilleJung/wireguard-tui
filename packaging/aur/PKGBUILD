@@ -1,6 +1,6 @@
 # Maintainer: jamillejung <izeystudio@gmail.com>
 pkgname=wireguard-tui
-pkgver=1.5.3
+pkgver=1.5.4
 pkgrel=1
 pkgdesc="A native Linux terminal UI (TUI) for managing WireGuard tunnels"
 arch=('x86_64')

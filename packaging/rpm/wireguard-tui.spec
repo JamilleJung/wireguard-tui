@@ -1,5 +1,5 @@
 Name:           wireguard-tui
-Version:        1.5.3
+Version:        1.5.4
 Release:        1%{?dist}
 Summary:        A native Linux terminal UI (TUI) for managing WireGuard tunnels
 
