@@ -2,13 +2,13 @@
 
 # 🐉 wireguard-tui · `wg-tui`
 
-**A native Linux terminal UI for managing WireGuard tunnels — everything the desktop client does, without leaving your terminal.**
+**A native Linux terminal UI for managing WireGuard tunnels - everything the desktop client does, without leaving your terminal.**
 
 Tunnel list with live status, an Interface/Peer detail pane, one-key
 Activate/Deactivate, an editor with config validation, key generation, in-terminal
 QR codes, export and start-on-boot.
 
-Written in **Rust** with [ratatui](https://ratatui.rs) — a single native binary
+Written in **Rust** with [ratatui](https://ratatui.rs) - a single native binary
 with **no GUI or C library dependencies**, so it runs the same on your desktop and
 over SSH on a minimal server.
 
@@ -19,7 +19,7 @@ over SSH on a minimal server.
 ![Platform: Linux](https://img.shields.io/badge/platform-Linux-success.svg)
 ![No GUI deps](https://img.shields.io/badge/deps-pure%20Rust-blueviolet.svg)
 
-<img src="docs/screenshot.svg" alt="wg-tui — the WireGuard terminal UI" width="900">
+<img src="docs/screenshot.svg" alt="wg-tui - the WireGuard terminal UI" width="900">
 
 </div>
 
@@ -32,13 +32,13 @@ over SSH on a minimal server.
 ## ℹ️ Good to know
 
 - **It drives `wg-quick`, not NetworkManager.** Tunnels are plain `.conf` files in
-  `/etc/wireguard`, brought up with `wg-quick up`/`down` — the standard WireGuard
+  `/etc/wireguard`, brought up with `wg-quick up`/`down` - the standard WireGuard
   path, deliberately bypassing NetworkManager (which has historically mangled
   `[Peer]` sections).
-- **Start-on-boot needs systemd** — it toggles the `wg-quick@<name>` unit. On
+- **Start-on-boot needs systemd** - it toggles the `wg-quick@<name>` unit. On
   non-systemd systems (OpenRC, runit, …) that one feature is unavailable;
   everything else works.
-- **A QR code — and an exported `.zip` — contains the tunnel's _private key_.**
+- **A QR code - and an exported `.zip` - contains the tunnel's _private key_.**
   Only show a QR when it's safe for someone to photograph your screen, and keep
   exports somewhere safe.
 
@@ -48,14 +48,14 @@ over SSH on a minimal server.
 
 - 📜 **Tunnel list** of everything under `/etc/wireguard`, with a live ●/○ active dot.
 - 🔌 **Activate / Deactivate** with one key (`wg-quick up` / `down`).
-- 🧾 **Live detail view** — status, public key, listen port, addresses, DNS,
+- 🧾 **Live detail view** - status, public key, listen port, addresses, DNS,
   and per-peer **latest handshake** + **transfer**, refreshed every second.
 - 📝 **Edit** any tunnel in your `$EDITOR`, with **config validation** before saving.
 - ♻️ **Apply edits to a running tunnel live** (`wg syncconf`) without dropping peers.
 - ➕ **New tunnel** from a generated template (fresh private key), and
   **🔑 Generate** keypairs + preshared keys on demand (`wg genkey`/`genpsk`).
 - 📥 **Import** a `.conf` file **or a QR-code image** (`wg-tui` decodes the PNG/JPG).
-- 📱 **Show QR** — render a tunnel as a QR code right in the terminal to scan
+- 📱 **Show QR** - render a tunnel as a QR code right in the terminal to scan
   into the WireGuard mobile app.
 - 🧰 **Running config** (`wg showconf`) and **Save live state** (`wg-quick save`).
 - 📦 **Export** all tunnels to a `.zip`.
@@ -117,8 +117,8 @@ wg-tui
 In the import browser, **Space** marks files for a **bulk import** and **Enter**
 imports all marked ones at once.
 
-**Easy mode** (the default for new users) shows only the everyday actions —
-connect/disconnect, import, start-on-boot, remove and Show-QR — so it's
+**Easy mode** (the default for new users) shows only the everyday actions -
+connect/disconnect, import, start-on-boot, remove and Show-QR - so it's
 approachable for non-technical users. Press **`m`** for Advanced mode (edit, new,
 generate keys, running config, save-live, rename, export); the choice is
 remembered.
@@ -132,7 +132,7 @@ it opens is mode `0600` and removed afterwards.
 
 Everything that needs root goes through a single, small, auditable shell script,
 `wg-helper`, installed at `/usr/local/lib/wireguard-tui/wg-helper`. The app never
-runs `wg-quick` directly — it calls the helper with a fixed verb (`up`, `down`,
+runs `wg-quick` directly - it calls the helper with a fixed verb (`up`, `down`,
 `save`, …). The helper:
 
 - exports a **fixed `PATH`** so a hijacked caller environment can't redirect it,
@@ -149,11 +149,11 @@ automatically.
 
 ---
 
-## 🧗 The story behind it — pain points & fixes
+## 🧗 The story behind it - pain points & fixes
 
 **Managing WireGuard from the terminal meant memorising `wg-quick` invocations
 and squinting at `wg show`.** There was no quick way to see, at a glance, which
-tunnels exist, which are up, and how much they've transferred — let alone edit
+tunnels exist, which are up, and how much they've transferred - let alone edit
 one safely or hand it to a phone.
 
 - **No overview.** `wg show` dumps raw data for *up* interfaces only; inactive
@@ -165,7 +165,7 @@ one safely or hand it to a phone.
   `wg syncconf` so sessions don't drop.
 - **Privilege was all-or-nothing.** Running the whole tool as root is a big
   surface. Here, only a tiny audited helper runs as root, via a one-line sudoers
-  entry — the rest runs as you.
+  entry - the rest runs as you.
 - **Getting a config onto a phone** used to mean copying files around. `Q`
   renders the tunnel as a scannable QR code in the terminal; `i` imports one back
   from an image.
@@ -186,14 +186,14 @@ cargo test                   # unit tests (parsing, validation, names)
 
 ## 🤝 Contributing
 
-Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Please run
+Issues and PRs welcome - see [CONTRIBUTING.md](CONTRIBUTING.md). Please run
 `cargo fmt --all` and `cargo clippy --all-targets -- -D warnings` before pushing.
 
 ---
 
 ## ⭐ Star this project
 
-If `wg-tui` is useful to you, **please give it a star on GitHub** — it genuinely
+If `wg-tui` is useful to you, **please give it a star on GitHub** - it genuinely
 helps other people discover the project and motivates further work.
 
 👉 **[Star wireguard-tui on GitHub](https://github.com/JamilleJung/wireguard-tui)** ⭐
@@ -221,10 +221,10 @@ trouble and you'd like to say thanks, a coffee is hugely appreciated 💛
 
 - The in-terminal QR can be large for long configs; use a roomy terminal, or
   scan from a maximised window.
-- Editing happens in your external `$EDITOR` (not an in-app form) — by design, so
+- Editing happens in your external `$EDITOR` (not an in-app form) - by design, so
   it stays a small, dependency-light TUI.
 
 ## 📄 License
 
-MIT — see [LICENSE](LICENSE). WireGuard is a registered trademark of
+MIT - see [LICENSE](LICENSE). WireGuard is a registered trademark of
 Jason A. Donenfeld. This is an independent, unofficial client.

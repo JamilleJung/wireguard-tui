@@ -1,0 +1,38 @@
+# Packaging wireguard-tui
+
+Distro packages so users don't have to run `install.sh` by hand. Each installs:
+
+- the `wg-tui` binary → `/usr/bin`
+- the privileged helper → `/usr/lib/wireguard-tui/wg-helper`
+- the `.desktop` launcher (terminal) + icon
+- the **polkit** rule → `/usr/share/polkit-1/rules.d/49-wireguard-tui.rules`
+
+`wireguard-tools` is the only runtime dependency; `polkit` provides the
+privilege; `systemd` is *optional* (only for start-on-boot). The app itself is
+pure Rust with **no GUI/C library dependencies**.
+
+## Arch (AUR) — `aur/PKGBUILD`
+
+```sh
+cd packaging/aur && makepkg -si
+```
+
+To publish: `makepkg -g` for real `sha256sums`, then push `PKGBUILD` + `.SRCINFO`
+to `ssh://aur@aur.archlinux.org/wireguard-tui.git`. Bump `pkgver` per release.
+(The PKGBUILD runs `cargo test` in `check()`.)
+
+## Fedora / RHEL / Rocky (COPR) — `rpm/wireguard-tui.spec`
+
+Build on **COPR** (SCM build against the repo + tagged `Source0` tarball), or
+locally with `rpmbuild -ba`. Runs `cargo test` in `%check`. Bump `Version` per
+release.
+
+## Debian / Ubuntu (.deb)
+
+Produced by the release workflow via `cargo deb` (`[package.metadata.deb]`).
+
+## Flatpak
+
+Not provided: a terminal tool that manages system WireGuard as root (via
+sudoers/polkit, writing `/etc/wireguard`) does not fit the Flatpak sandbox. Use
+the native install, the AUR package, the RPM/COPR build, or the `.deb`.
