@@ -1,33 +1,30 @@
-# wireguard-tui — `wg-tui`
+<div align="center">
 
-A native **terminal UI** for managing WireGuard tunnels on Linux. It does
-everything the desktop client does — tunnel list, live status, activate/
-deactivate, an editor, key generation, QR codes, export and start-on-boot —
-without leaving your terminal. Pure Rust, no GUI libraries, runs great over SSH.
+# 🐉 wireguard-tui · `wg-tui`
+
+**A native Linux terminal UI for managing WireGuard tunnels — everything the desktop client does, without leaving your terminal.**
+
+Tunnel list with live status, an Interface/Peer detail pane, one-key
+Activate/Deactivate, an editor with config validation, key generation, in-terminal
+QR codes, export and start-on-boot.
+
+Written in **Rust** with [ratatui](https://ratatui.rs) — a single native binary
+with **no GUI or C library dependencies**, so it runs the same on your desktop and
+over SSH on a minimal server.
+
+[![CI](https://github.com/JamilleJung/wireguard-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/JamilleJung/wireguard-tui/actions/workflows/ci.yml)
+[![Releases](https://img.shields.io/badge/Releases-latest-2ea44f)](https://github.com/JamilleJung/wireguard-tui/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)
+![Platform: Linux](https://img.shields.io/badge/platform-Linux-success.svg)
+![No GUI deps](https://img.shields.io/badge/deps-pure%20Rust-blueviolet.svg)
+
+<img src="docs/screenshot.svg" alt="wg-tui — the WireGuard terminal UI" width="900">
+
+</div>
 
 > Sibling project of the desktop GUI. Same hardened privilege model, same
 > `wg`/`wg-quick` coverage — just keyboard-driven.
-
-```
-┌ WireGuard — terminal ───────────────────────────────────────────────────┐
-│  Tunnels │ Log                                                           │
-└──────────────────────────────────────────────────────────────────────────┘
-┌ Tunnels ─────────────┐┌ home-server ───────────────────────────────────┐
-│  ● home-server       ││ Interface                                       │
-│  ○ work-vpn          ││   Status        Active                          │
-│  ○ tokyo-relay       ││   Public key    Hk3pQ2vN8sLrYwZ1aFcJ4mD6tB9…    │
-│  ○ us-east-1         ││   Listen port   51820                           │
-│                      ││   Addresses     10.7.0.2/24, fd00:7::2/64       │
-│                      ││   DNS           1.1.1.1, 1.0.0.1                 │
-│                      ││   Start on boot Yes                             │
-│                      ││                                                 │
-│                      ││ Peer 1                                          │
-│                      ││   Endpoint      vpn.example.com:51820           │
-│                      ││   Latest hs     38 seconds ago                  │
-│                      ││   Transfer      1.24 GiB received, 318 MiB sent │
-└──────────────────────┘└─────────────────────────────────────────────────┘
- ↑↓ move  ⏎/a on·off  e edit  n new  i import  g gen-key  Q qr  x export  q quit
-```
 
 ---
 
@@ -171,13 +168,27 @@ Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Please run
 
 ## ⭐ Star this project
 
-If `wg-tui` saves you some keystrokes, a **star** helps other people find it —
-thank you!
+If `wg-tui` is useful to you, **please give it a star on GitHub** — it genuinely
+helps other people discover the project and motivates further work.
+
+👉 **[Star wireguard-tui on GitHub](https://github.com/JamilleJung/wireguard-tui)** ⭐
+
+You can also **watch** the repo for releases and **fork** it to hack on your own ideas.
+
+---
 
 ## ☕ Buy me a coffee
 
-If it saved you time and you'd like to say thanks:
-**https://www.buymeacoffee.com/jamillejung** ☕
+This is a free, open-source project built in spare time. If it saved you some
+trouble and you'd like to say thanks, a coffee is hugely appreciated 💛
+
+<div align="center">
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/jamillejung)
+
+**[☕ buymeacoffee.com/jamillejung](https://www.buymeacoffee.com/jamillejung)**
+
+</div>
 
 ---
 

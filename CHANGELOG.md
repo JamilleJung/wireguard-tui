@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-16
+
+### Added
+- **Import is now a file browser** — press `i` to navigate directories and pick a
+  `.conf` file or a QR image, instead of typing a path.
+- A rendered terminal screenshot in the README.
+
+### Changed
+- **Status messages auto-dismiss** after a few seconds, so the footer returns to
+  the key hints instead of leaving an alert stuck on screen.
+- **Instant feedback for slow actions** — activate/deactivate, delete,
+  start-on-boot and save-live now repaint a progress line *before* the (blocking)
+  privileged call, so a key press always shows it is working.
+- The footer key-hint bar **adapts to the terminal width**, falling back to a
+  compact set (always including `? help` / `q quit`) on narrow terminals.
+
 ## [1.0.0] - 2026-06-16
 
 ### Added
@@ -29,5 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Universal installer** (`install.sh`) for apt, dnf/yum, pacman, zypper, apk,
   xbps and eopkg, with a minimal-install dependency check.
 
-[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/JamilleJung/wireguard-tui/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.0.0

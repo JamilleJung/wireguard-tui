@@ -5,15 +5,44 @@
 mod backend;
 
 use std::io;
-use std::os::unix::fs::PermissionsExt;
+use std::io::Write as _;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap};
 
+/// Background poll interval (live status refresh).
 const TICK: Duration = Duration::from_millis(1500);
+/// How long a footer status message stays before it auto-clears.
+const STATUS_TTL: Duration = Duration::from_secs(4);
+
+/// One entry in the import file browser.
+struct FileEntry {
+    name: String,
+    path: PathBuf,
+    is_dir: bool,
+}
+
+/// What the background poller is told to fetch (current selection + tab).
+#[derive(Default)]
+struct PollIn {
+    selected: Option<String>,
+    want_log: bool,
+}
+
+/// A live snapshot computed off the UI thread by the poller.
+struct Snapshot {
+    /// `None` means the helper call failed — keep the existing list, just report.
+    tunnels: Option<Vec<backend::Tunnel>>,
+    detail: Option<(String, backend::Detail)>,
+    log: Option<String>,
+    error: Option<String>,
+}
 
 /// What the foreground is currently doing — a normal view or a modal popup.
 enum Mode {
@@ -32,8 +61,12 @@ enum Mode {
         orig: String,
         buf: String,
     },
-    /// Text entry for a path to import (a `.conf` file or a QR-code image).
-    InputImport(String),
+    /// File browser for importing a `.conf` file or a QR-code image.
+    ImportBrowse {
+        dir: PathBuf,
+        entries: Vec<FileEntry>,
+        sel: usize,
+    },
 }
 
 struct App {
@@ -44,8 +77,12 @@ struct App {
     log: String,
     log_scroll: u16,
     status: String,
+    status_at: Option<Instant>,
     mode: Mode,
     quit: bool,
+    // Shared with the background poller thread (off-UI-thread live refresh).
+    poll_in: Arc<Mutex<PollIn>>,
+    poll_out: Arc<Mutex<Option<Snapshot>>>,
 }
 
 impl App {
@@ -58,15 +95,62 @@ impl App {
             log: String::new(),
             log_scroll: 0,
             status: String::new(),
+            status_at: None,
             mode: Mode::Normal,
             quit: false,
+            poll_in: Arc::new(Mutex::new(PollIn::default())),
+            poll_out: Arc::new(Mutex::new(None)),
         };
         app.reload();
         if !app.tunnels.is_empty() {
             app.state.select(Some(0));
             app.load_detail();
         }
+        app.sync_poll_in();
         app
+    }
+
+    /// Tell the poller what to fetch next (current selection + whether the Log
+    /// tab is showing).
+    fn sync_poll_in(&self) {
+        let mut pi = self.poll_in.lock().unwrap();
+        pi.selected = self.selected_name();
+        pi.want_log = self.tab == 1;
+    }
+
+    /// Apply the latest background snapshot to the UI state (non-blocking).
+    fn apply_snapshot(&mut self) {
+        let Some(snap) = self.poll_out.lock().unwrap().take() else {
+            return;
+        };
+        if let Some(err) = snap.error {
+            self.flash(err);
+        }
+        if let Some(tunnels) = snap.tunnels {
+            // Reconcile, preserving the selection by name.
+            let prev = self.selected_name();
+            self.tunnels = tunnels;
+            if self.tunnels.is_empty() {
+                self.state.select(None);
+                self.detail = None;
+            } else {
+                let idx = prev
+                    .and_then(|p| self.tunnels.iter().position(|t| t.name == p))
+                    .or_else(|| self.state.selected())
+                    .unwrap_or(0)
+                    .min(self.tunnels.len() - 1);
+                self.state.select(Some(idx));
+            }
+        }
+        // Only apply detail that still matches the current selection.
+        if let Some((name, d)) = snap.detail {
+            if Some(&name) == self.selected_name().as_ref() {
+                self.detail = Some(d);
+            }
+        }
+        if let Some(log) = snap.log {
+            self.log = log;
+        }
     }
 
     fn selected_name(&self) -> Option<String> {
@@ -118,7 +202,30 @@ impl App {
 
     fn flash(&mut self, msg: impl Into<String>) {
         self.status = msg.into();
+        self.status_at = Some(Instant::now());
     }
+
+    /// Clear the footer status once it has been shown for `STATUS_TTL`.
+    fn expire_status(&mut self) {
+        if let Some(at) = self.status_at {
+            if at.elapsed() >= STATUS_TTL {
+                self.status.clear();
+                self.status_at = None;
+            }
+        }
+    }
+}
+
+/// Set a status and repaint immediately — so slow privileged calls (which block
+/// this single-threaded UI for a second or two) still give instant feedback.
+fn flash_now(
+    app: &mut App,
+    terminal: &mut ratatui::DefaultTerminal,
+    msg: impl Into<String>,
+) -> io::Result<()> {
+    app.flash(msg);
+    terminal.draw(|f| ui(f, app))?;
+    Ok(())
 }
 
 fn main() -> io::Result<()> {
@@ -131,14 +238,22 @@ fn main() -> io::Result<()> {
 
 fn run(terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
     let mut app = App::new();
-    let mut last = Instant::now();
+    spawn_poller(app.poll_in.clone(), app.poll_out.clone());
 
     while !app.quit {
+        app.apply_snapshot();
+        app.sync_poll_in();
+        app.expire_status();
         terminal.draw(|f| ui(f, &mut app))?;
 
-        let timeout = TICK
-            .saturating_sub(last.elapsed())
-            .max(Duration::from_millis(50));
+        // Short wake-ups so background snapshots apply promptly and the status
+        // clears on time; capped so input stays responsive but the loop idles.
+        let mut timeout = Duration::from_millis(250);
+        if let Some(at) = app.status_at {
+            timeout = timeout.min(STATUS_TTL.saturating_sub(at.elapsed()));
+        }
+        let timeout = timeout.max(Duration::from_millis(50));
+
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
@@ -146,12 +261,46 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
                 }
             }
         }
-        if last.elapsed() >= TICK {
-            app.tick();
-            last = Instant::now();
-        }
     }
     Ok(())
+}
+
+/// Background thread: does the blocking `wg`/`sudo` calls so the UI never
+/// freezes, dropping the result into `poll_out` for the UI loop to apply.
+fn spawn_poller(poll_in: Arc<Mutex<PollIn>>, poll_out: Arc<Mutex<Option<Snapshot>>>) {
+    std::thread::spawn(move || loop {
+        let (sel, want_log) = {
+            let pi = poll_in.lock().unwrap();
+            (pi.selected.clone(), pi.want_log)
+        };
+        let snap = match backend::try_list_tunnels() {
+            Ok(tunnels) => {
+                let detail = sel
+                    .as_ref()
+                    .filter(|n| tunnels.iter().any(|t| &t.name == *n))
+                    .map(|n| (n.clone(), backend::get_detail(n)));
+                let log = if want_log {
+                    Some(backend::get_log())
+                } else {
+                    None
+                };
+                Snapshot {
+                    tunnels: Some(tunnels),
+                    detail,
+                    log,
+                    error: None,
+                }
+            }
+            Err(e) => Snapshot {
+                tunnels: None,
+                detail: None,
+                log: None,
+                error: Some(format!("Helper error: {e}")),
+            },
+        };
+        *poll_out.lock().unwrap() = Some(snap);
+        std::thread::sleep(TICK);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -179,12 +328,13 @@ fn handle_key(
             let name = name.clone();
             match code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    app.mode = Mode::Normal;
+                    flash_now(app, terminal, format!("Deleting {name}…"))?;
                     let _ = backend::deactivate(&name);
                     match backend::delete(&name) {
                         Ok(()) => app.flash(format!("Deleted {name}")),
                         Err(e) => app.flash(format!("Delete failed: {e}")),
                     }
-                    app.mode = Mode::Normal;
                     app.reload();
                 }
                 _ => {
@@ -202,10 +352,12 @@ fn handle_key(
                 }
                 KeyCode::Enter => {
                     let name = backend::sanitize_name(buf.trim());
-                    let empty = buf.trim().is_empty();
+                    // Require at least one letter/digit, else sanitize_name would
+                    // silently fall back to "tunnel".
+                    let invalid = !buf.chars().any(|c| c.is_ascii_alphanumeric());
                     app.mode = Mode::Normal;
-                    if empty {
-                        app.flash("Name is required");
+                    if invalid {
+                        app.flash("Name needs a letter or number");
                     } else if backend::tunnel_exists(&name) {
                         app.mode =
                             Mode::Message(format!("A tunnel named “{name}” already exists."));
@@ -227,27 +379,52 @@ fn handle_key(
                 }
                 KeyCode::Enter => {
                     let new = backend::sanitize_name(buf.trim());
-                    let empty = buf.trim().is_empty();
+                    let invalid = !buf.chars().any(|c| c.is_ascii_alphanumeric());
                     app.mode = Mode::Normal;
-                    rename_tunnel(app, &orig, &new, empty);
+                    rename_tunnel(app, &orig, &new, invalid);
                 }
                 KeyCode::Char(c) if buf.len() < 15 => buf.push(c),
                 _ => {}
             }
             return Ok(());
         }
-        Mode::InputImport(buf) => {
+        Mode::ImportBrowse { dir, entries, sel } => {
             match code {
                 KeyCode::Esc => app.mode = Mode::Normal,
-                KeyCode::Backspace => {
-                    buf.pop();
+                KeyCode::Up | KeyCode::Char('k') => {
+                    *sel = sel.saturating_sub(1);
                 }
-                KeyCode::Enter => {
-                    let path = buf.trim().to_string();
-                    app.mode = Mode::Normal;
-                    import_path(app, &path);
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if *sel + 1 < entries.len() {
+                        *sel += 1;
+                    }
                 }
-                KeyCode::Char(c) => buf.push(c),
+                KeyCode::Backspace | KeyCode::Left | KeyCode::Char('h') => {
+                    if let Some(parent) = dir.parent().map(|p| p.to_path_buf()) {
+                        let entries = read_dir_entries(&parent);
+                        app.mode = Mode::ImportBrowse {
+                            dir: parent,
+                            entries,
+                            sel: 0,
+                        };
+                    }
+                }
+                KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
+                    let chosen = entries.get(*sel).map(|e| (e.is_dir, e.path.clone()));
+                    if let Some((is_dir, path)) = chosen {
+                        if is_dir {
+                            let entries = read_dir_entries(&path);
+                            app.mode = Mode::ImportBrowse {
+                                dir: path,
+                                entries,
+                                sel: 0,
+                            };
+                        } else {
+                            app.mode = Mode::Normal;
+                            import_file(app, &path);
+                        }
+                    }
+                }
                 _ => {}
             }
             return Ok(());
@@ -279,7 +456,7 @@ fn handle_key(
                 app.move_selection(-1);
             }
         }
-        KeyCode::Enter | KeyCode::Char('a') => toggle_active(app),
+        KeyCode::Enter | KeyCode::Char('a') => toggle_active(app, terminal)?,
         KeyCode::Char('e') => edit_tunnel(app, terminal)?,
         KeyCode::Char('n') => app.mode = Mode::InputNew(String::new()),
         KeyCode::Char('d') => {
@@ -295,11 +472,11 @@ fn handle_key(
                 };
             }
         }
-        KeyCode::Char('s') => toggle_autostart(app),
-        KeyCode::Char('i') => app.mode = Mode::InputImport(String::new()),
+        KeyCode::Char('s') => toggle_autostart(app, terminal)?,
+        KeyCode::Char('i') => open_import_browser(app),
         KeyCode::Char('g') => generate_show(app),
         KeyCode::Char('c') => show_running(app),
-        KeyCode::Char('p') => persist_live(app),
+        KeyCode::Char('p') => persist_live(app, terminal)?,
         KeyCode::Char('x') => export(app),
         KeyCode::Char('Q') => show_qr(app),
         KeyCode::Char('r') => {
@@ -312,14 +489,23 @@ fn handle_key(
     Ok(())
 }
 
-fn toggle_active(app: &mut App) {
+fn toggle_active(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
     let Some(idx) = app.state.selected() else {
-        return;
+        return Ok(());
     };
     let Some(t) = app.tunnels.get(idx) else {
-        return;
+        return Ok(());
     };
     let (name, active) = (t.name.clone(), t.active);
+    // `wg-quick` can take a couple of seconds; show progress before we block.
+    flash_now(
+        app,
+        terminal,
+        format!(
+            "{} {name}…",
+            if active { "Deactivating" } else { "Activating" }
+        ),
+    )?;
     let res = if active {
         backend::deactivate(&name)
     } else {
@@ -333,11 +519,13 @@ fn toggle_active(app: &mut App) {
         Err(e) => app.flash(format!("Failed: {e}")),
     }
     app.reload();
+    Ok(())
 }
 
-fn toggle_autostart(app: &mut App) {
-    let Some(d) = &app.detail else { return };
+fn toggle_autostart(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
+    let Some(d) = &app.detail else { return Ok(()) };
     let (name, want) = (d.name.clone(), !d.autostart);
+    flash_now(app, terminal, format!("Updating start-on-boot for {name}…"))?;
     match backend::set_autostart(&name, want) {
         Ok(()) => app.flash(format!(
             "Start on boot {} for {name}",
@@ -346,6 +534,7 @@ fn toggle_autostart(app: &mut App) {
         Err(e) => app.flash(format!("Failed: {e}")),
     }
     app.load_detail();
+    Ok(())
 }
 
 fn export(app: &mut App) {
@@ -387,34 +576,89 @@ fn show_running(app: &mut App) {
     }
 }
 
-fn persist_live(app: &mut App) {
-    let Some(d) = &app.detail else { return };
+fn persist_live(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
+    let Some(d) = &app.detail else { return Ok(()) };
     if !d.active {
         app.flash("Tunnel is not active");
-        return;
+        return Ok(());
     }
     let name = d.name.clone();
+    flash_now(app, terminal, format!("Saving live state of {name}…"))?;
     match backend::persist_live(&name) {
         Ok(()) => app.flash(format!("Saved live state of {name} to its .conf")),
         Err(e) => app.flash(format!("Save-live failed: {e}")),
     }
     app.reload();
+    Ok(())
+}
+
+/// Build the import browser, starting in the current directory (or $HOME).
+fn open_import_browser(app: &mut App) {
+    let dir = std::env::current_dir()
+        .ok()
+        .filter(|p| p.is_dir())
+        .or_else(|| std::env::var("HOME").ok().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("/"));
+    let entries = read_dir_entries(&dir);
+    app.mode = Mode::ImportBrowse {
+        dir,
+        entries,
+        sel: 0,
+    };
+}
+
+/// List a directory for the import browser: a `..` entry, then sub-directories,
+/// then importable files (`.conf`/`.png`/`.jpg`/`.jpeg`). Hidden names are
+/// skipped except the parent shortcut.
+fn read_dir_entries(dir: &Path) -> Vec<FileEntry> {
+    let mut out = Vec::new();
+    if let Some(parent) = dir.parent() {
+        out.push(FileEntry {
+            name: "..".to_string(),
+            path: parent.to_path_buf(),
+            is_dir: true,
+        });
+    }
+    let (mut dirs, mut files) = (Vec::new(), Vec::new());
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                continue;
+            }
+            let path = e.path();
+            if path.is_dir() {
+                dirs.push(FileEntry {
+                    name,
+                    path,
+                    is_dir: true,
+                });
+            } else {
+                let ext = path
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if matches!(ext.as_str(), "conf" | "png" | "jpg" | "jpeg") {
+                    files.push(FileEntry {
+                        name,
+                        path,
+                        is_dir: false,
+                    });
+                }
+            }
+        }
+    }
+    let by_name = |a: &FileEntry, b: &FileEntry| a.name.to_lowercase().cmp(&b.name.to_lowercase());
+    dirs.sort_by(by_name);
+    files.sort_by(by_name);
+    out.extend(dirs);
+    out.extend(files);
+    out
 }
 
 /// Import a tunnel from a `.conf` file or a QR-code image (`.png`/`.jpg`).
-fn import_path(app: &mut App, raw: &str) {
-    if raw.is_empty() {
-        app.flash("Import cancelled");
-        return;
-    }
-    // Expand a leading ~ to $HOME.
-    let expanded = if let Some(rest) = raw.strip_prefix("~/") {
-        let home = std::env::var("HOME").unwrap_or_default();
-        format!("{home}/{rest}")
-    } else {
-        raw.to_string()
-    };
-    let path = std::path::PathBuf::from(&expanded);
+fn import_file(app: &mut App, path: &Path) {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -422,9 +666,9 @@ fn import_path(app: &mut App, raw: &str) {
         .to_ascii_lowercase();
 
     let content = if matches!(ext.as_str(), "png" | "jpg" | "jpeg") {
-        backend::decode_qr(&path)
+        backend::decode_qr(path)
     } else {
-        std::fs::read_to_string(&path).map_err(|e| e.to_string())
+        std::fs::read_to_string(path).map_err(|e| e.to_string())
     };
     let content = match content {
         Ok(c) => c,
@@ -552,9 +796,9 @@ fn create_tunnel(
     Ok(())
 }
 
-fn rename_tunnel(app: &mut App, orig: &str, new: &str, empty: bool) {
-    if empty {
-        app.flash("Name is required");
+fn rename_tunnel(app: &mut App, orig: &str, new: &str, invalid: bool) {
+    if invalid {
+        app.flash("Name needs a letter or number");
         return;
     }
     if new == orig {
@@ -592,10 +836,31 @@ fn run_editor(
     terminal: &mut ratatui::DefaultTerminal,
     initial: &str,
 ) -> io::Result<Option<String>> {
+    // Put the temp config in a per-user PRIVATE directory: $XDG_RUNTIME_DIR
+    // (already mode 0700) when available, else a 0700 subdir of the temp dir.
+    // This, plus an O_EXCL 0600 create, means no other user can pre-plant a
+    // symlink/file to read the private key or steer the editor.
+    let dir = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .unwrap_or_else(|| {
+            let uid = unsafe { libc::geteuid() };
+            let d = std::env::temp_dir().join(format!("wg-tui-{uid}"));
+            let _ = std::fs::create_dir_all(&d);
+            let _ = std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o700));
+            d
+        });
     let pid = std::process::id();
-    let path = std::env::temp_dir().join(format!("wg-tui-{pid}.conf"));
-    std::fs::write(&path, initial)?;
-    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    let path = dir.join(format!("wg-tui-{pid}.conf"));
+    let _ = std::fs::remove_file(&path); // clear any stale file from a recycled PID
+    {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true) // O_EXCL: never follow a symlink or reuse a file
+            .mode(0o600)
+            .open(&path)?;
+        f.write_all(initial.as_bytes())?;
+    }
 
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
@@ -649,10 +914,19 @@ fn ui(f: &mut Frame, app: &mut App) {
         render_log(f, app, chunks[1]);
     }
 
-    // Footer: status if set, else key hints.
+    // Footer: status if set, else key hints. The full hint is long, so fall
+    // back to a compact one (still showing ? help / q quit) on narrow terminals.
+    let full = " ↑↓ move  ⏎/a on·off  e edit  n new  i import  g gen-key  c showconf  d del  R rename  s boot  p save-live  Q qr  x export  Tab log  ? help  q quit";
+    let compact =
+        " ↑↓ move  ⏎ on/off  e edit  n new  i import  d del  Q qr  Tab log  ? help  q quit";
+    let hint = if full.chars().count() as u16 <= chunks[2].width {
+        full
+    } else {
+        compact
+    };
     let footer = if app.status.is_empty() {
         Line::from(vec![Span::styled(
-            " ↑↓ move  ⏎/a on·off  e edit  n new  i import  g gen-key  c showconf  d del  R rename  s boot  p save-live  Q qr  x export  Tab log  ? help  q quit",
+            hint,
             Style::default().fg(Color::DarkGray),
         )])
     } else {
@@ -674,10 +948,54 @@ fn ui(f: &mut Frame, app: &mut App) {
         ),
         Mode::InputNew(buf) => render_input(f, "New tunnel name", buf),
         Mode::InputRename { buf, .. } => render_input(f, "Rename tunnel", buf),
-        Mode::InputImport(buf) => render_input(f, "Import path (.conf or QR .png)", buf),
+        Mode::ImportBrowse { dir, entries, sel } => render_browse(f, dir, entries, *sel),
         Mode::Qr(lines) => render_qr(f, lines),
         Mode::Normal => {}
     }
+}
+
+fn render_browse(f: &mut Frame, dir: &Path, entries: &[FileEntry], sel: usize) {
+    let h = (entries.len() as u16 + 2).clamp(3, 22);
+    let area = popup_area(f.area(), 72, h);
+    f.render_widget(Clear, area);
+
+    let items: Vec<ListItem> = entries
+        .iter()
+        .map(|e| {
+            if e.is_dir {
+                ListItem::new(Line::from(Span::styled(
+                    format!("{}/", e.name),
+                    Style::default().fg(Color::Cyan),
+                )))
+            } else {
+                ListItem::new(Line::from(Span::raw(e.name.clone())))
+            }
+        })
+        .collect();
+
+    // Show the trailing part of the path so the title fits (char-safe).
+    let full = dir.to_string_lossy();
+    let shown = if full.chars().count() > 26 {
+        let tail: String = full
+            .chars()
+            .rev()
+            .take(25)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        format!("…{tail}")
+    } else {
+        full.into_owned()
+    };
+    let title = format!(" Import: {shown}  (↵ open · ⌫ up · Esc cancel) ");
+
+    let mut st = ListState::default();
+    st.select(if entries.is_empty() { None } else { Some(sel) });
+    let list = List::new(items)
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).bold());
+    f.render_stateful_widget(list, area, &mut st);
 }
 
 fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
@@ -845,18 +1163,28 @@ fn render_help(f: &mut Frame) {
   ?              This help    q / Esc   Quit";
     let area = popup_area(f.area(), 66, 20);
     f.render_widget(Clear, area);
-    let p = Paragraph::new(help).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Keys  (press any key to close) "),
+    let title = format!(
+        " wg-tui v{} · keys (press any key to close) ",
+        env!("CARGO_PKG_VERSION")
     );
+    let p = Paragraph::new(help).block(Block::default().borders(Borders::ALL).title(title));
     f.render_widget(p, area);
 }
 
 fn render_qr(f: &mut Frame, lines: &[Line<'static>]) {
-    let h = lines.len() as u16 + 2;
-    let w = lines.first().map(|l| l.width()).unwrap_or(20) as u16 + 2;
-    let area = popup_area(f.area(), w, h);
+    let need_h = lines.len() as u16 + 2;
+    let need_w = lines.first().map(|l| l.width()).unwrap_or(20) as u16 + 2;
+    let a = f.area();
+    // A clamped QR would crop into an unscannable code — say so instead.
+    if need_w > a.width || need_h > a.height {
+        render_message(
+            f,
+            "QR too large",
+            "This QR is bigger than the terminal.\nEnlarge the window (or zoom out), then press Q again.",
+        );
+        return;
+    }
+    let area = popup_area(a, need_w, need_h);
     f.render_widget(Clear, area);
     let p = Paragraph::new(lines.to_vec()).block(
         Block::default()
