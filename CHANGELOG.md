@@ -15,6 +15,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected stray "wireguard-gui" wording and the log header in the helper to
   "wireguard-tui".
 
+### Changed
+- **Helper portability.** `wg-helper` no longer needs GNU `find -printf` (uses a
+  pure-bash glob, so it works with BusyBox `find` on Alpine/Void) and filters
+  listed tunnels to valid names. Start-on-boot detects `systemctl` first and
+  fails clearly on non-systemd systems (`is-enabled` reports "unknown"); the log
+  view explains when `journalctl` is unavailable.
+- **Helper-path override hardening.** `$WG_HELPER` is honoured freely in debug
+  builds, but in release builds it is ignored unless `WG_ALLOW_UNSAFE_HELPER=1`
+  is set *and* the target is an absolute, root-owned, non-world-writable file.
+
+### Added
+- Unit tests for config parsing, validation and name sanitisation; a CI step
+  that shell-syntax-checks `wg-helper` and `install.sh`.
+- An expanded `SECURITY.md` (threat model, privilege boundary, `PostUp` root
+  hooks, private-key/QR handling, supply-chain verification).
+- README cross-links the desktop sibling (`wireguard-gui`) and explains the
+  `wg-quick` (not NetworkManager) model, the init-system limitation, and the
+  QR/private-key warning.
+
 ## [1.1.0] - 2026-06-16
 
 ### Added
