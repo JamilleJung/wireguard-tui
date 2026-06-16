@@ -107,6 +107,7 @@ wg-tui
 | `s` | Toggle start-on-boot |
 | `p` | Save a running tunnel's live state to its `.conf` |
 | `Q` | Show the tunnel as a QR code |
+| `y` | Copy the interface public key to the clipboard (OSC 52) |
 | `x` | Export all tunnels to `~/wireguard-tunnels.zip` |
 | `Tab` | Switch the Tunnels / Log tabs |
 | `m` | Toggle **Easy** / **Advanced** mode |

@@ -262,6 +262,42 @@ fn is_advanced_key(code: KeyCode) -> bool {
     )
 }
 
+/// Minimal standard-alphabet base64 (for the OSC52 clipboard escape).
+fn base64(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for c in data.chunks(3) {
+        let b0 = c[0] as u32;
+        let b1 = *c.get(1).unwrap_or(&0) as u32;
+        let b2 = *c.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(if c.len() > 1 {
+            T[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// Copy `text` to the system clipboard via the OSC 52 terminal escape. Works in
+/// terminals that support it (xterm, kitty, wezterm, tmux with passthrough, …);
+/// a no-op elsewhere. Doesn't draw, so it won't disturb the ratatui frame.
+fn osc52_copy(text: &str) {
+    use std::io::Write as _;
+    let seq = format!("\x1b]52;c;{}\x07", base64(text.as_bytes()));
+    let mut out = std::io::stdout();
+    let _ = out.write_all(seq.as_bytes());
+    let _ = out.flush();
+}
+
 /// Set a status and repaint immediately - so slow privileged calls (which block
 /// this single-threaded UI for a second or two) still give instant feedback.
 fn flash_now(
@@ -521,6 +557,13 @@ fn handle_key(
                 "Advanced mode (all actions)"
             });
         }
+        KeyCode::Char('y') => match app.detail.as_ref().map(|d| d.public_key.clone()) {
+            Some(pk) if !pk.is_empty() => {
+                osc52_copy(&pk);
+                app.flash("Public key copied to clipboard");
+            }
+            _ => app.flash("No public key to copy"),
+        },
         KeyCode::Tab | KeyCode::BackTab => {
             app.tab = 1 - app.tab;
             if app.tab == 1 {
@@ -1071,10 +1114,10 @@ fn ui(f: &mut Frame, app: &mut App) {
     // actions; Advanced shows everything (with a compact fallback on narrow
     // terminals). Both keep ? help / q quit visible.
     let hint = if app.easy {
-        " Up/Dn move  Enter/a connect/disconnect  i import  s on-boot  d remove  Q qr  Tab log  m advanced  ? help  q quit"
+        " Up/Dn move  Enter/a connect/disconnect  i import  s on-boot  d remove  Q qr  y copy-key  Tab log  m advanced  ? help  q quit"
     } else {
-        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  c showconf  d del  R rename  s boot  p save-live  Q qr  x export  Tab log  m easy  ? help  q quit";
-        let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  d del  Q qr  Tab log  m easy  ? help  q quit";
+        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  p save-live  Q qr  x export  Tab log  m easy  ? help  q quit";
+        let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  y copy-key  d del  Q qr  Tab log  m easy  ? help  q quit";
         if full.chars().count() as u16 <= chunks[2].width {
             full
         } else {
@@ -1331,6 +1374,7 @@ fn render_help(f: &mut Frame) {
   d              Delete the selected tunnel
   s              Toggle start-on-boot for the selected tunnel
   Q              Show the tunnel as a QR code (scan into mobile)
+  y              Copy the interface public key to the clipboard (OSC 52)
   Tab            Switch between the Tunnels and Log tabs
   m              Toggle Easy / Advanced mode    r   Refresh now
 
@@ -1339,7 +1383,7 @@ fn render_help(f: &mut Frame) {
   p save live state   R rename   x export all tunnels
 
   ?              This help    q / Esc   Quit";
-    let area = popup_area(f.area(), 70, 22);
+    let area = popup_area(f.area(), 70, 23);
     f.render_widget(Clear, area);
     let title = format!(
         " wg-tui v{} | keys (press any key to close) ",
