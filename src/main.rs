@@ -1,4 +1,4 @@
-//! A full-screen terminal UI for managing WireGuard tunnels — the same feature
+//! A full-screen terminal UI for managing WireGuard tunnels - the same feature
 //! set as the desktop client (list, live status, activate/deactivate, editor,
 //! key generation, QR, export, start-on-boot), driven entirely by the keyboard.
 
@@ -37,14 +37,14 @@ struct PollIn {
 
 /// A live snapshot computed off the UI thread by the poller.
 struct Snapshot {
-    /// `None` means the helper call failed — keep the existing list, just report.
+    /// `None` means the helper call failed - keep the existing list, just report.
     tunnels: Option<Vec<backend::Tunnel>>,
     detail: Option<(String, backend::Detail)>,
     log: Option<String>,
     error: Option<String>,
 }
 
-/// What the foreground is currently doing — a normal view or a modal popup.
+/// What the foreground is currently doing - a normal view or a modal popup.
 enum Mode {
     Normal,
     Help,
@@ -61,11 +61,13 @@ enum Mode {
         orig: String,
         buf: String,
     },
-    /// File browser for importing a `.conf` file or a QR-code image.
+    /// File browser for importing one or more `.conf` files / QR-code images.
+    /// `marked` holds files ticked for a bulk import (kept across directories).
     ImportBrowse {
         dir: PathBuf,
         entries: Vec<FileEntry>,
         sel: usize,
+        marked: std::collections::HashSet<PathBuf>,
     },
 }
 
@@ -80,6 +82,8 @@ struct App {
     status_at: Option<Instant>,
     mode: Mode,
     quit: bool,
+    /// Easy mode hides expert actions for everyday users (toggle with `m`).
+    easy: bool,
     // Shared with the background poller thread (off-UI-thread live refresh).
     poll_in: Arc<Mutex<PollIn>>,
     poll_out: Arc<Mutex<Option<Snapshot>>>,
@@ -98,6 +102,7 @@ impl App {
             status_at: None,
             mode: Mode::Normal,
             quit: false,
+            easy: load_easy(),
             poll_in: Arc::new(Mutex::new(PollIn::default())),
             poll_out: Arc::new(Mutex::new(None)),
         };
@@ -216,7 +221,48 @@ impl App {
     }
 }
 
-/// Set a status and repaint immediately — so slow privileged calls (which block
+/// Path of the saved Easy/Advanced preference: $XDG_CONFIG_HOME (or ~/.config)
+/// /wireguard-tui/mode.
+fn mode_state_path() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    Some(base.join("wireguard-tui").join("mode"))
+}
+
+/// Load the saved mode. New users default to Easy mode.
+fn load_easy() -> bool {
+    match mode_state_path().and_then(|p| std::fs::read_to_string(p).ok()) {
+        Some(s) => s.trim() != "advanced",
+        None => true,
+    }
+}
+
+/// Persist the mode so the choice sticks across runs.
+fn save_easy(easy: bool) {
+    if let Some(p) = mode_state_path() {
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(p, if easy { "easy" } else { "advanced" });
+    }
+}
+
+/// Keys hidden in Easy mode (expert/raw-config actions).
+fn is_advanced_key(code: KeyCode) -> bool {
+    matches!(
+        code,
+        KeyCode::Char('e') // edit raw config
+            | KeyCode::Char('n') // new from scratch
+            | KeyCode::Char('g') // generate keys
+            | KeyCode::Char('c') // show running config
+            | KeyCode::Char('p') // save live state
+            | KeyCode::Char('R') // rename
+            | KeyCode::Char('x') // export all
+    )
+}
+
+/// Set a status and repaint immediately - so slow privileged calls (which block
 /// this single-threaded UI for a second or two) still give instant feedback.
 fn flash_now(
     app: &mut App,
@@ -329,7 +375,7 @@ fn handle_key(
             match code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
                     app.mode = Mode::Normal;
-                    flash_now(app, terminal, format!("Deleting {name}…"))?;
+                    flash_now(app, terminal, format!("Deleting {name}..."))?;
                     let _ = backend::deactivate(&name);
                     match backend::delete(&name) {
                         Ok(()) => app.flash(format!("Deleted {name}")),
@@ -360,7 +406,7 @@ fn handle_key(
                         app.flash("Name needs a letter or number");
                     } else if backend::tunnel_exists(&name) {
                         app.mode =
-                            Mode::Message(format!("A tunnel named “{name}” already exists."));
+                            Mode::Message(format!("A tunnel named '{name}' already exists."));
                     } else {
                         create_tunnel(app, terminal, &name)?;
                     }
@@ -388,7 +434,12 @@ fn handle_key(
             }
             return Ok(());
         }
-        Mode::ImportBrowse { dir, entries, sel } => {
+        Mode::ImportBrowse {
+            dir,
+            entries,
+            sel,
+            marked,
+        } => {
             match code {
                 KeyCode::Esc => app.mode = Mode::Normal,
                 KeyCode::Up | KeyCode::Char('k') => {
@@ -399,13 +450,23 @@ fn handle_key(
                         *sel += 1;
                     }
                 }
+                // Space toggles a file's mark for bulk import (dirs can't be marked).
+                KeyCode::Char(' ') => {
+                    if let Some(e) = entries.get(*sel) {
+                        if !e.is_dir && !marked.remove(&e.path) {
+                            marked.insert(e.path.clone());
+                        }
+                    }
+                }
                 KeyCode::Backspace | KeyCode::Left | KeyCode::Char('h') => {
                     if let Some(parent) = dir.parent().map(|p| p.to_path_buf()) {
                         let entries = read_dir_entries(&parent);
+                        let marked = std::mem::take(marked); // keep marks across dirs
                         app.mode = Mode::ImportBrowse {
                             dir: parent,
                             entries,
                             sel: 0,
+                            marked,
                         };
                     }
                 }
@@ -413,15 +474,25 @@ fn handle_key(
                     let chosen = entries.get(*sel).map(|e| (e.is_dir, e.path.clone()));
                     if let Some((is_dir, path)) = chosen {
                         if is_dir {
+                            // Descend, preserving any marks.
                             let entries = read_dir_entries(&path);
+                            let marked = std::mem::take(marked);
                             app.mode = Mode::ImportBrowse {
                                 dir: path,
                                 entries,
                                 sel: 0,
+                                marked,
                             };
-                        } else {
+                        } else if marked.is_empty() {
                             app.mode = Mode::Normal;
                             import_file(app, &path);
+                        } else {
+                            // Bulk import everything marked (the highlighted file
+                            // is included automatically if it was marked).
+                            let mut paths: Vec<PathBuf> = marked.iter().cloned().collect();
+                            paths.sort();
+                            app.mode = Mode::Normal;
+                            import_files(app, &paths);
                         }
                     }
                 }
@@ -432,9 +503,24 @@ fn handle_key(
         Mode::Normal => {}
     }
 
+    // Easy mode hides expert actions; tell the user how to reach them.
+    if app.easy && is_advanced_key(code) {
+        app.flash("Advanced action - press 'm' to switch to Advanced mode");
+        return Ok(());
+    }
+
     // Normal-mode keys.
     match code {
         KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
+        KeyCode::Char('m') => {
+            app.easy = !app.easy;
+            save_easy(app.easy);
+            app.flash(if app.easy {
+                "Easy mode (everyday actions)"
+            } else {
+                "Advanced mode (all actions)"
+            });
+        }
         KeyCode::Tab | KeyCode::BackTab => {
             app.tab = 1 - app.tab;
             if app.tab == 1 {
@@ -502,7 +588,7 @@ fn toggle_active(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::
         app,
         terminal,
         format!(
-            "{} {name}…",
+            "{} {name}...",
             if active { "Deactivating" } else { "Activating" }
         ),
     )?;
@@ -525,7 +611,11 @@ fn toggle_active(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::
 fn toggle_autostart(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
     let Some(d) = &app.detail else { return Ok(()) };
     let (name, want) = (d.name.clone(), !d.autostart);
-    flash_now(app, terminal, format!("Updating start-on-boot for {name}…"))?;
+    flash_now(
+        app,
+        terminal,
+        format!("Updating start-on-boot for {name}..."),
+    )?;
     match backend::set_autostart(&name, want) {
         Ok(()) => app.flash(format!(
             "Start on boot {} for {name}",
@@ -552,7 +642,7 @@ fn generate_show(app: &mut App) {
     match (backend::generate_keypair(), backend::generate_psk()) {
         (Ok((priv_k, pub_k)), Ok(psk)) => {
             app.mode = Mode::Message(format!(
-                "Generated — copy what you need into the editor:\n\n\
+                "Generated - copy what you need into the editor:\n\n\
                  PrivateKey   = {priv_k}\n\
                  PublicKey    = {pub_k}\n\
                  PresharedKey = {psk}"
@@ -571,7 +661,7 @@ fn show_running(app: &mut App) {
     }
     let name = d.name.clone();
     match backend::running_config(&name) {
-        Ok(c) => app.mode = Mode::Message(format!("Running config — {name}\n\n{}", c.trim_end())),
+        Ok(c) => app.mode = Mode::Message(format!("Running config - {name}\n\n{}", c.trim_end())),
         Err(e) => app.flash(format!("showconf failed: {e}")),
     }
 }
@@ -583,7 +673,7 @@ fn persist_live(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::R
         return Ok(());
     }
     let name = d.name.clone();
-    flash_now(app, terminal, format!("Saving live state of {name}…"))?;
+    flash_now(app, terminal, format!("Saving live state of {name}..."))?;
     match backend::persist_live(&name) {
         Ok(()) => app.flash(format!("Saved live state of {name} to its .conf")),
         Err(e) => app.flash(format!("Save-live failed: {e}")),
@@ -604,6 +694,7 @@ fn open_import_browser(app: &mut App) {
         dir,
         entries,
         sel: 0,
+        marked: std::collections::HashSet::new(),
     };
 }
 
@@ -678,7 +769,7 @@ fn import_file(app: &mut App, path: &Path) {
         }
     };
     if let Err(e) = backend::validate_config(&content) {
-        app.mode = Mode::Message(format!("Import failed — invalid config:\n{e}"));
+        app.mode = Mode::Message(format!("Import failed - invalid config:\n{e}"));
         return;
     }
     let stem = path
@@ -689,7 +780,7 @@ fn import_file(app: &mut App, path: &Path) {
     match backend::save_config(&name, &content) {
         Ok(()) => {
             let warn = if backend::config_runs_scripts(&content) {
-                " ⚠ runs scripts as root"
+                " ! runs scripts as root"
             } else {
                 ""
             };
@@ -701,6 +792,68 @@ fn import_file(app: &mut App, path: &Path) {
     if let Some(i) = app.tunnels.iter().position(|t| t.name == name) {
         app.state.select(Some(i));
         app.load_detail();
+    }
+}
+
+/// Import several files at once (bulk). Each is validated and auto-deduplicated;
+/// invalid ones are skipped and any that run root scripts are flagged.
+fn import_files(app: &mut App, paths: &[PathBuf]) {
+    let (mut count, mut skipped, mut scripts) = (0, 0, false);
+    let mut last = None;
+    for path in paths {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let content = if matches!(ext.as_str(), "png" | "jpg" | "jpeg") {
+            backend::decode_qr(path)
+        } else {
+            std::fs::read_to_string(path).map_err(|e| e.to_string())
+        };
+        let Ok(content) = content else {
+            skipped += 1;
+            continue;
+        };
+        if backend::validate_config(&content).is_err() {
+            skipped += 1;
+            continue;
+        }
+        scripts |= backend::config_runs_scripts(&content);
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("imported");
+        let name = backend::unique_name(stem);
+        match backend::save_config(&name, &content) {
+            Ok(()) => {
+                last = Some(name);
+                count += 1;
+            }
+            Err(_) => skipped += 1,
+        }
+    }
+    if count > 0 {
+        let warn = if scripts {
+            " ! some run scripts as root"
+        } else {
+            ""
+        };
+        let skip = if skipped > 0 {
+            format!(", {skipped} skipped")
+        } else {
+            String::new()
+        };
+        app.flash(format!("Imported {count} tunnel(s){skip}{warn}"));
+    } else {
+        app.flash(format!("Nothing imported ({skipped} skipped/invalid)"));
+    }
+    app.reload();
+    if let Some(name) = last {
+        if let Some(i) = app.tunnels.iter().position(|t| t.name == name) {
+            app.state.select(Some(i));
+            app.load_detail();
+        }
     }
 }
 
@@ -735,7 +888,7 @@ fn edit_tunnel(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Re
         return Ok(());
     }
     if let Err(e) = backend::validate_config(&edited) {
-        app.mode = Mode::Message(format!("Not saved — invalid config:\n{e}"));
+        app.mode = Mode::Message(format!("Not saved - invalid config:\n{e}"));
         return Ok(());
     }
     match backend::save_config(&name, &edited) {
@@ -746,14 +899,14 @@ fn edit_tunnel(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Re
                 match backend::sync_running(&name) {
                     Ok(()) => app.flash(format!("Saved {name} (applied live)")),
                     Err(_) => {
-                        app.flash(format!("Saved {name} — reconnect to apply Address/DNS/MTU"))
+                        app.flash(format!("Saved {name} - reconnect to apply Address/DNS/MTU"))
                     }
                 }
             } else {
                 app.flash(format!("Saved {name}"));
             }
             if backend::config_runs_scripts(&edited) {
-                app.flash(format!("{} ⚠ runs scripts as root", app.status));
+                app.flash(format!("{} ! runs scripts as root", app.status));
             }
         }
         Err(e) => app.flash(format!("Save failed: {e}")),
@@ -774,13 +927,13 @@ fn create_tunnel(
         return Ok(());
     };
     if let Err(e) = backend::validate_config(&edited) {
-        app.mode = Mode::Message(format!("Not created — invalid config:\n{e}"));
+        app.mode = Mode::Message(format!("Not created - invalid config:\n{e}"));
         return Ok(());
     }
     match backend::save_config(name, &edited) {
         Ok(()) => {
             let warn = if backend::config_runs_scripts(&edited) {
-                " ⚠ runs scripts as root"
+                " ! runs scripts as root"
             } else {
                 ""
             };
@@ -805,7 +958,7 @@ fn rename_tunnel(app: &mut App, orig: &str, new: &str, invalid: bool) {
         return;
     }
     if backend::tunnel_exists(new) {
-        app.mode = Mode::Message(format!("A tunnel named “{new}” already exists."));
+        app.mode = Mode::Message(format!("A tunnel named '{new}' already exists."));
         return;
     }
     let cfg = match backend::read_config(orig) {
@@ -821,7 +974,7 @@ fn rename_tunnel(app: &mut App, orig: &str, new: &str, invalid: bool) {
     }
     let _ = backend::deactivate(orig);
     let _ = backend::delete(orig);
-    app.flash(format!("Renamed {orig} → {new}"));
+    app.flash(format!("Renamed {orig} -> {new}"));
     app.reload();
     if let Some(i) = app.tunnels.iter().position(|t| t.name == new) {
         app.state.select(Some(i));
@@ -899,7 +1052,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" WireGuard — terminal "),
+                .title(" WireGuard - terminal "),
         )
         .select(app.tab)
         .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan).bold());
@@ -914,15 +1067,19 @@ fn ui(f: &mut Frame, app: &mut App) {
         render_log(f, app, chunks[1]);
     }
 
-    // Footer: status if set, else key hints. The full hint is long, so fall
-    // back to a compact one (still showing ? help / q quit) on narrow terminals.
-    let full = " ↑↓ move  ⏎/a on·off  e edit  n new  i import  g gen-key  c showconf  d del  R rename  s boot  p save-live  Q qr  x export  Tab log  ? help  q quit";
-    let compact =
-        " ↑↓ move  ⏎ on/off  e edit  n new  i import  d del  Q qr  Tab log  ? help  q quit";
-    let hint = if full.chars().count() as u16 <= chunks[2].width {
-        full
+    // Footer: status if set, else key hints. Easy mode shows only the everyday
+    // actions; Advanced shows everything (with a compact fallback on narrow
+    // terminals). Both keep ? help / q quit visible.
+    let hint = if app.easy {
+        " Up/Dn move  Enter/a connect/disconnect  i import  s on-boot  d remove  Q qr  Tab log  m advanced  ? help  q quit"
     } else {
-        compact
+        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  c showconf  d del  R rename  s boot  p save-live  Q qr  x export  Tab log  m easy  ? help  q quit";
+        let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  d del  Q qr  Tab log  m easy  ? help  q quit";
+        if full.chars().count() as u16 <= chunks[2].width {
+            full
+        } else {
+            compact
+        }
     };
     let footer = if app.status.is_empty() {
         Line::from(vec![Span::styled(
@@ -944,17 +1101,28 @@ fn ui(f: &mut Frame, app: &mut App) {
         Mode::ConfirmDelete(name) => render_message(
             f,
             "Confirm delete",
-            &format!("Delete tunnel “{name}”?\n\n[y] yes    [n] no"),
+            &format!("Delete tunnel '{name}'?\n\n[y] yes    [n] no"),
         ),
         Mode::InputNew(buf) => render_input(f, "New tunnel name", buf),
         Mode::InputRename { buf, .. } => render_input(f, "Rename tunnel", buf),
-        Mode::ImportBrowse { dir, entries, sel } => render_browse(f, dir, entries, *sel),
+        Mode::ImportBrowse {
+            dir,
+            entries,
+            sel,
+            marked,
+        } => render_browse(f, dir, entries, *sel, marked),
         Mode::Qr(lines) => render_qr(f, lines),
         Mode::Normal => {}
     }
 }
 
-fn render_browse(f: &mut Frame, dir: &Path, entries: &[FileEntry], sel: usize) {
+fn render_browse(
+    f: &mut Frame,
+    dir: &Path,
+    entries: &[FileEntry],
+    sel: usize,
+    marked: &std::collections::HashSet<PathBuf>,
+) {
     let h = (entries.len() as u16 + 2).clamp(3, 22);
     let area = popup_area(f.area(), 72, h);
     f.render_widget(Clear, area);
@@ -964,11 +1132,16 @@ fn render_browse(f: &mut Frame, dir: &Path, entries: &[FileEntry], sel: usize) {
         .map(|e| {
             if e.is_dir {
                 ListItem::new(Line::from(Span::styled(
-                    format!("{}/", e.name),
+                    format!("    {}/", e.name),
                     Style::default().fg(Color::Cyan),
                 )))
+            } else if marked.contains(&e.path) {
+                ListItem::new(Line::from(Span::styled(
+                    format!("[x] {}", e.name),
+                    Style::default().fg(Color::Green),
+                )))
             } else {
-                ListItem::new(Line::from(Span::raw(e.name.clone())))
+                ListItem::new(Line::from(Span::raw(format!("[ ] {}", e.name))))
             }
         })
         .collect();
@@ -984,11 +1157,18 @@ fn render_browse(f: &mut Frame, dir: &Path, entries: &[FileEntry], sel: usize) {
             .into_iter()
             .rev()
             .collect();
-        format!("…{tail}")
+        format!("...{tail}")
     } else {
         full.into_owned()
     };
-    let title = format!(" Import: {shown}  (↵ open · ⌫ up · Esc cancel) ");
+    let title = if marked.is_empty() {
+        format!(" Import: {shown}  (Space mark | Enter open/import | Bksp up | Esc) ")
+    } else {
+        format!(
+            " Import: {shown}  ({} marked | Enter import all | Esc) ",
+            marked.len()
+        )
+    };
 
     let mut st = ListState::default();
     st.select(if entries.is_empty() { None } else { Some(sel) });
@@ -1004,9 +1184,9 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .map(|t| {
             let (dot, color) = if t.active {
-                ("●", Color::Green)
+                ("*", Color::Green)
             } else {
-                ("○", Color::DarkGray)
+                ("-", Color::DarkGray)
             };
             ListItem::new(Line::from(vec![
                 Span::styled(format!(" {dot} "), Style::default().fg(color)),
@@ -1066,7 +1246,7 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::Cyan).bold(),
             )));
             lines.push(kv("Public key", &dash(&p.public_key)));
-            lines.push(kv("Preshared key", if p.preshared { "Yes" } else { "—" }));
+            lines.push(kv("Preshared key", if p.preshared { "Yes" } else { "-" }));
             lines.push(kv("Allowed IPs", &dash(&p.allowed_ips)));
             lines.push(kv("Endpoint", &dash(&p.endpoint)));
             lines.push(kv("Keepalive", &dash(&p.keepalive)));
@@ -1074,7 +1254,7 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
             lines.push(kv("Transfer", &dash(&p.transfer)));
         }
     } else {
-        lines.push(Line::from("No tunnels yet — press 'n' to create one."));
+        lines.push(Line::from("No tunnels yet - press 'n' to create one."));
     }
 
     let p = Paragraph::new(lines)
@@ -1085,7 +1265,7 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
 
 fn dash(s: &str) -> String {
     if s.trim().is_empty() {
-        "—".to_string()
+        "-".to_string()
     } else {
         s.to_string()
     }
@@ -1096,7 +1276,7 @@ fn render_log(f: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Log  (↑↓ scroll) "),
+                .title(" Log  (Up/Dn scroll) "),
         )
         .scroll((app.log_scroll, 0))
         .wrap(Wrap { trim: false });
@@ -1133,38 +1313,36 @@ fn render_input(f: &mut Frame, title: &str, buf: &str) {
     f.render_widget(Clear, area);
     let p = Paragraph::new(Line::from(vec![
         Span::raw(buf.to_string()),
-        Span::styled("▏", Style::default().fg(Color::Cyan)),
+        Span::styled("_", Style::default().fg(Color::Cyan)),
     ]))
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .title(format!(" {title}  (Enter ✓ / Esc ✗) ")),
+            .title(format!(" {title}  (Enter ok / Esc x) ")),
     );
     f.render_widget(p, area);
 }
 
 fn render_help(f: &mut Frame) {
     let help = "\
-  ↑ / k, ↓ / j   Move selection (scroll the Log tab)
+  Up / k, Dn / j   Move selection (scroll the Log tab)
   Enter / a      Activate or deactivate the selected tunnel
-  e              Edit the selected tunnel in $EDITOR
-  n              Create a new tunnel (generated key + $EDITOR)
-  i              Import a tunnel from a .conf file or QR image
-  g              Generate a keypair + preshared key (to paste in)
-  c              Show a running tunnel's live config (wg showconf)
+  i              Import a tunnel (file browser; Space marks many, Enter imports)
   d              Delete the selected tunnel
-  R              Rename the selected tunnel
   s              Toggle start-on-boot for the selected tunnel
-  p              Save a running tunnel's live state to its .conf
   Q              Show the tunnel as a QR code (scan into mobile)
-  x              Export all tunnels to ~/wireguard-tunnels.zip
   Tab            Switch between the Tunnels and Log tabs
-  r              Refresh now
+  m              Toggle Easy / Advanced mode    r   Refresh now
+
+  Advanced mode also adds:
+  e edit in $EDITOR   n new tunnel   g generate keys   c show running config
+  p save live state   R rename   x export all tunnels
+
   ?              This help    q / Esc   Quit";
-    let area = popup_area(f.area(), 66, 20);
+    let area = popup_area(f.area(), 70, 22);
     f.render_widget(Clear, area);
     let title = format!(
-        " wg-tui v{} · keys (press any key to close) ",
+        " wg-tui v{} | keys (press any key to close) ",
         env!("CARGO_PKG_VERSION")
     );
     let p = Paragraph::new(help).block(Block::default().borders(Borders::ALL).title(title));
@@ -1175,7 +1353,7 @@ fn render_qr(f: &mut Frame, lines: &[Line<'static>]) {
     let need_h = lines.len() as u16 + 2;
     let need_w = lines.first().map(|l| l.width()).unwrap_or(20) as u16 + 2;
     let a = f.area();
-    // A clamped QR would crop into an unscannable code — say so instead.
+    // A clamped QR would crop into an unscannable code - say so instead.
     if need_w > a.width || need_h > a.height {
         render_message(
             f,
@@ -1189,7 +1367,7 @@ fn render_qr(f: &mut Frame, lines: &[Line<'static>]) {
     let p = Paragraph::new(lines.to_vec()).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" QR — scan in the WireGuard app (any key closes) "),
+            .title(" QR - scan in the WireGuard app (any key closes) "),
     );
     f.render_widget(p, area);
 }

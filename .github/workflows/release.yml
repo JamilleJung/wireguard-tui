@@ -42,6 +42,7 @@ jobs:
           cp target/release/wg-tui "$D/"
           cp packaging/wg-helper "$D/"
           cp packaging/wireguard-tui.desktop "$D/"
+          cp packaging/wireguard-tui.svg "$D/"
           cp packaging/49-wireguard-tui.rules "$D/"
           cp install.sh README.md LICENSE "$D/"
           tar -czf "${D}.tar.gz" "$D"

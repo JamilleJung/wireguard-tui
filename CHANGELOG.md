@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-06-17
+
+> Version realigned with the desktop client (`wireguard-gui`) so the family
+> shares one number — this is the release after 1.1.2.
+
+### Added
+- **Easy mode** (default) for everyday users: shows only Connect/Disconnect,
+  Import, Start-on-boot, Remove and Show-QR; press **`m`** for Advanced mode
+  (edit, new, generate keys, running config, save-live, rename, export). The
+  choice is remembered (`~/.config/wireguard-tui/mode`).
+- **Bulk import**: in the import browser, **Space** marks files and **Enter**
+  imports all marked ones at once (matches the desktop client).
+- A **desktop icon** (shared with the GUI) is installed and used by the launcher.
+
+### Fixed
+- **Terminal rendering corruption on some fonts/locales.** The UI no longer uses
+  ambiguous/wide Unicode glyphs (arrows, `●`/`○` dots, `…`, dingbats) that some
+  terminals render double-width or as tofu, garbling the layout — it is now
+  ASCII-only (box-drawing borders aside).
+
 ## [1.1.2] - 2026-06-16
 
 ### Changed
@@ -88,7 +108,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Universal installer** (`install.sh`) for apt, dnf/yum, pacman, zypper, apk,
   xbps and eopkg, with a minimal-install dependency check.
 
-[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.3.4...HEAD
+[1.3.4]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.2...v1.3.4
 [1.1.2]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/JamilleJung/wireguard-tui/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/JamilleJung/wireguard-tui/compare/v1.0.0...v1.1.0
