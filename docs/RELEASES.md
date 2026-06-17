@@ -24,7 +24,7 @@ cd wireguard-tui
 
 The installer detects your package manager (apt, dnf/yum, pacman, zypper, apk,
 xbps, eopkg), installs `wireguard-tools` plus a C linker, makes sure a Rust
-toolchain is present (via rustup if needed), builds the `wg-tui` binary as your
+toolchain is present (via rustup if needed), builds the `wg-tui` binary (linked as `wireguard-tui`) as your
 own user, and installs the binary and privileged helper. By default it does not
 install a desktop launcher; `./install.sh --desktop` adds one if you want it.
 By default it sets up a passwordless `sudoers` drop-in scoped to the helper;
@@ -74,7 +74,7 @@ CI guards quality before anything is tagged. On each change it runs:
 - `cargo test` - the unit tests for config parsing, validation and tunnel-name
   sanitisation run on every push and pull request.
 - `cargo build --release` - the project must compile in release mode.
-- A smoke test: `wg-tui --version` and `wg-tui --help` start and exit cleanly
+- A smoke test: `wg-tui --version` (or `wireguard-tui --version`) and `wg-tui --help` start and exit cleanly
   without launching the full-screen UI, and `wg-tui doctor` prints its checklist
   and exits with a valid code (0, 1 or 2).
 - Shell syntax/lint checks on `install.sh` and helper validation scripts.

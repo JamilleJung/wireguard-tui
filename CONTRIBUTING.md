@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in improving `wg-tui`!
+Thanks for your interest in improving `wg-tui` (also `wireguard-tui`)!
 
 ## Development
 

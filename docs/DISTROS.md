@@ -40,7 +40,7 @@ genuinely old kernels (RHEL 7, Debian buster, Ubuntu 18.04 and older), where you
 install `wireguard-dkms` / `kmod-wireguard` from your distro. On anything current,
 there is nothing to do.
 
-`wg-tui doctor` reports your kernel and whether the module is available.
+`wg-tui doctor` (or `wireguard-tui doctor`) reports your kernel and whether the module is available.
 
 ---
 
@@ -48,7 +48,7 @@ there is nothing to do.
 
 **It sets up:**
 
-- `wireguard-tools` (`wg` / `wg-quick`) - via `./install.sh`, or `wg-tui setup`.
+- `wireguard-tools` (`wg` / `wg-quick`) - via `./install.sh`, or `wg-tui setup` (or `wireguard-tui setup`).
 - A resolvconf provider when a `DNS =` line would otherwise fail (see section 5).
 - The privileged helper + a passwordless **sudoers** drop-in (or **polkit** rule).
 - `/etc/wireguard` (mode `0700`).
@@ -117,8 +117,8 @@ su root -c 'apt install openresolv'
 If **systemd-resolved** is active (`/run/systemd/resolve` exists - the default on
 Ubuntu and Fedora), it already satisfies this and you need nothing.
 
-You don't have to remember any of that: `wg-tui doctor` shows a **"DNS for tunnels
-(resolvconf)"** line, `wg-tui setup` offers to install the provider, and
+You don't have to remember any of that: `wg-tui doctor` (or `wireguard-tui doctor`) shows a **"DNS for tunnels
+(resolvconf)"** line, `wg-tui setup` (or `wireguard-tui setup`) offers to install the provider, and
 `./install.sh` installs it automatically on a minimal box. The fix **persists** - it's
 a normal installed package.
 
@@ -205,5 +205,5 @@ wg-tui doctor      # checklist: tools, helper, authorization, /etc/wireguard, DN
 wg-tui setup       # guided, confirmation-based fix for anything missing
 ```
 
-`wg-tui doctor` is read-only and needs no root - ideal to run first over SSH on a new
+`wg-tui doctor` (or `wireguard-tui doctor`) is read-only and needs no root - ideal to run first over SSH on a new
 box.
