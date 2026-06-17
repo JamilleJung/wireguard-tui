@@ -754,17 +754,27 @@ fn killswitch_enable_nft(name: &str, mark: &str) -> Result<(), String> {
     // SSH safety: when $SSH_CONNECTION is set, insert an ACCEPT rule for
     // established/related SSH return traffic before the kill-switch rules
     // so the current session survives.
-    let ssh_port = std::env::var("SSH_CONNECTION").ok().and_then(|conn| {
-        conn.split_whitespace().nth(3)?.parse::<u16>().ok()
-    });
+    let ssh_port = std::env::var("SSH_CONNECTION")
+        .ok()
+        .and_then(|conn| conn.split_whitespace().nth(3)?.parse::<u16>().ok());
     if let Some(port) = ssh_port {
         let _ = command_output(
             "nft",
             &[
-                "insert", "rule", "inet", "filter", "output",
-                "tcp", "sport", &port.to_string(),
-                "ct", "state", "established,related", "accept",
-                "comment", &comment,
+                "insert",
+                "rule",
+                "inet",
+                "filter",
+                "output",
+                "tcp",
+                "sport",
+                &port.to_string(),
+                "ct",
+                "state",
+                "established,related",
+                "accept",
+                "comment",
+                &comment,
             ],
             None,
             Duration::from_secs(5),
@@ -845,20 +855,33 @@ fn killswitch_flush_iptables(name: &str) {
 fn killswitch_enable_iptables(name: &str, mark: &str) -> Result<(), String> {
     let comment = kill_comment(name);
     killswitch_flush_iptables(name);
-    let ssh_port = std::env::var("SSH_CONNECTION").ok().and_then(|conn| {
-        conn.split_whitespace().nth(3)?.parse::<u16>().ok()
-    });
+    let ssh_port = std::env::var("SSH_CONNECTION")
+        .ok()
+        .and_then(|conn| conn.split_whitespace().nth(3)?.parse::<u16>().ok());
     if let Some(port) = ssh_port {
         for tool_name in ["iptables", "ip6tables"] {
-            if !have_tool(tool_name) { continue; }
+            if !have_tool(tool_name) {
+                continue;
+            }
             let _ = command_output(
                 tool_name,
                 &[
-                    "-I", "OUTPUT",
-                    "-p", "tcp", "--sport", &port.to_string(),
-                    "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED",
-                    "-m", "comment", "--comment", &comment,
-                    "-j", "ACCEPT",
+                    "-I",
+                    "OUTPUT",
+                    "-p",
+                    "tcp",
+                    "--sport",
+                    &port.to_string(),
+                    "-m",
+                    "conntrack",
+                    "--ctstate",
+                    "ESTABLISHED,RELATED",
+                    "-m",
+                    "comment",
+                    "--comment",
+                    &comment,
+                    "-j",
+                    "ACCEPT",
                 ],
                 None,
                 Duration::from_secs(5),
@@ -940,9 +963,7 @@ fn killswitch_status(name: &str) -> Result<(), String> {
 fn killswitch_enable(name: &str) -> Result<(), String> {
     // SSH safety: warn when $SSH_CONNECTION is set (kill switch can lock out).
     if std::env::var("SSH_CONNECTION").is_ok() {
-        eprintln!(
-            "wg-helper: SSH session detected — auto-allowing established SSH traffic. "
-        );
+        eprintln!("wg-helper: SSH session detected — auto-allowing established SSH traffic. ");
     }
 
     // 1. Ensure tunnel has FwMark and is active.
@@ -1136,11 +1157,17 @@ mod tests {
     fn ssh_port_parsing() {
         // Simulate SSH_CONNECTION parsing
         let conn = "192.168.1.5 52341 10.0.0.1 22";
-        let port: Option<u16> = conn.split_whitespace().nth(3).and_then(|s| s.parse::<u16>().ok());
+        let port: Option<u16> = conn
+            .split_whitespace()
+            .nth(3)
+            .and_then(|s| s.parse::<u16>().ok());
         assert_eq!(port, Some(22));
 
         let bad = "garbage";
-        let port2: Option<u16> = bad.split_whitespace().nth(3).and_then(|s| s.parse::<u16>().ok());
+        let port2: Option<u16> = bad
+            .split_whitespace()
+            .nth(3)
+            .and_then(|s| s.parse::<u16>().ok());
         assert_eq!(port2, None);
     }
 
