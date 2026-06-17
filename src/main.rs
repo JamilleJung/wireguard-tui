@@ -1605,7 +1605,7 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
             lines.push(kv(
                 "Speed",
                 &format!(
-                    "down {}/s   up {}/s",
+                    "↓ {}/s   ↑ {}/s",
                     backend::fmt_bytes(app.rate_rx),
                     backend::fmt_bytes(app.rate_tx)
                 ),
