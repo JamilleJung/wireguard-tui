@@ -245,6 +245,7 @@ Advanced mode also enables:
 | `e` | Edit the selected tunnel in `$VISUAL` / `$EDITOR` / `nano` |
 | `g` | Generate a keypair and preshared key |
 | `c` | Show the running config with `wg showconf` |
+| `+` | Quick-add a new `[Peer]` section to the selected tunnel |
 | `K` | Toggle the helper-managed kill switch for an active tunnel |
 | `p` | Save live state with `wg-quick save` |
 | `R` | Rename the selected tunnel |
@@ -436,10 +437,8 @@ not log private keys.
 
 ## Roadmap
 
-- Better advanced peer editing without turning the TUI into a heavy form app.
 - More helper, installer, and doctor tests, including firewall rule dry-run coverage.
 - More distro packages where maintainers want them (COPR, official Alpine/Void).
-- Terminal QR cell-aspect-ratio auto-detection for better rendering.
 
 ## License
 
