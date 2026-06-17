@@ -60,9 +60,12 @@ The helper itself:
   to the unprivileged frontend validation;
 - **logs every mutating action** (with the invoking user) to the journal
   (`logger -t wireguard-tui`).
-- can add/remove tunnel-scoped iptables/ip6tables OUTPUT rules for an active
-  `wg-quick` tunnel when the user toggles the kill switch. It does not install a
-  daemon or own the system firewall permanently.
+- can add/remove tunnel-scoped firewall rules for an active `wg-quick` tunnel
+  when the user toggles the kill switch, preferring **nftables** (`inet filter`)
+  with an iptables/ip6tables fallback. It never flushes user rules and cleans up
+  on disable. It does not install a daemon or own the system firewall
+  permanently.
+- warns (stderr) before enabling a kill switch when `$SSH_CONNECTION` is set.
 
 ## `PostUp` / `PreUp` / `PostDown` / `PreDown` run as root
 

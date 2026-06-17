@@ -4,7 +4,7 @@ A complete, beginner-friendly walkthrough of `wg-tui`, the terminal UI for
 managing WireGuard tunnels on Linux. No prior WireGuard knowledge is assumed.
 Every command here is copy-pasteable.
 
-This is the current release: **1.5.5**.
+This is the current release: **1.6.0**.
 
 ---
 
@@ -258,7 +258,7 @@ from `wg show`, refreshed about every 1.5 seconds:
 
 Quick reference for what a healthy client tunnel looks like: a recent **latest
 handshake** (seconds/minutes ago, not hours), transfer counters that climb as you
-use the network, and a non-zero down/up speed when traffic is flowing.
+use the network, and a non-zero ↓/↑ speed when traffic is flowing.
 
 Press **`y`** to copy the interface public key to your clipboard (via the OSC 52
 terminal escape, so it works locally and over SSH in supporting terminals) - handy
@@ -361,7 +361,7 @@ in-app help.
 | `d` | Delete the selected tunnel |
 | `R` | Rename the selected tunnel |
 | `s` | Toggle start-on-boot |
-| `K` | Toggle the helper-managed kill switch for an active tunnel |
+| `K` | Toggle the helper-managed kill switch for an active tunnel (nftables preferred; iptables fallback) |
 | `p` | Save a running tunnel's live state to its `.conf` |
 | `Q` | Show the tunnel as a QR code |
 | `y` | Copy the interface public key to the clipboard (OSC 52) |

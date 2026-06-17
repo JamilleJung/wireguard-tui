@@ -96,8 +96,8 @@ systems where a desktop stack is the wrong dependency.
 - Applies compatible saved edits to a running tunnel with `wg syncconf`.
 - Saves live running state back to disk with `wg-quick save`.
 - Toggles start-on-boot with systemd `wg-quick@<name>` when systemd is present.
-- Toggles a helper-managed kill switch for active tunnels using Linux firewall
-  primitives.
+- Toggles a helper-managed kill switch for active tunnels using nftables
+  (preferred) or iptables/ip6tables.
 - Provides Easy mode for everyday actions and Advanced mode for raw operations.
 - Remembers the Easy/Advanced preference under the user config directory.
 
