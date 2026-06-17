@@ -221,7 +221,9 @@ setup workflow.
 
 1. Press **`n`** to create a new tunnel. You will be prompted for a name (up to
    15 characters); press **`Enter`** to confirm or **`Esc`** to cancel.
-2. `wg-tui` creates a template with a freshly generated private key and opens it
+2. Choose a preset: **`i`** for Interface only, **`f`** / **`Enter`** for a
+   full-tunnel client, or **`s`** for a split-tunnel client.
+3. `wg-tui` creates a template with a freshly generated private key and opens it
    in your editor (`$VISUAL`/`$EDITOR`, falling back to `nano`). Fill in the rest
    (address, peer public key, endpoint, allowed IPs), then save and quit the
    editor.
@@ -351,8 +353,8 @@ in-app help.
 |-----|--------|
 | `Up`/`k`, `Down`/`j` | Move selection (scroll the Log tab) |
 | `Enter` / `a` | Activate or deactivate the selected tunnel |
+| `n` | Create a new tunnel (preset + generated key + `$EDITOR`) |
 | `e` | Edit the selected tunnel in `$EDITOR` |
-| `n` | Create a new tunnel (generated key + `$EDITOR`) |
 | `i` | Import from a `.conf` file or QR image |
 | `g` | Generate a keypair + preshared key |
 | `c` | Show a running tunnel's live config (`wg showconf`) |

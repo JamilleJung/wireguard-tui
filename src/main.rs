@@ -3,7 +3,12 @@
 //! key generation, QR, export, start-on-boot), driven entirely by the keyboard.
 
 mod backend;
+mod clipboard;
+mod config;
+mod create;
 mod doctor;
+mod secrets;
+mod validation;
 
 use std::io;
 use std::io::Write as _;
@@ -57,6 +62,10 @@ enum Mode {
     ConfirmDelete(String),
     /// Text entry for a brand-new tunnel name.
     InputNew(String),
+    /// Preset choice for a brand-new tunnel after the name is valid.
+    NewPreset {
+        name: String,
+    },
     /// Text entry to rename `orig`.
     InputRename {
         orig: String,
@@ -343,7 +352,7 @@ fn base64(data: &[u8]) -> String {
 /// a no-op elsewhere. Doesn't draw, so it won't disturb the ratatui frame.
 fn osc52_copy(text: &str) {
     use std::io::Write as _;
-    let text = normalize_copy_value(text);
+    let text = clipboard::normalize_single_field_copy_value(text);
     if text.is_empty() {
         return;
     }
@@ -351,16 +360,6 @@ fn osc52_copy(text: &str) {
     let mut out = std::io::stdout();
     let _ = out.write_all(seq.as_bytes());
     let _ = out.flush();
-}
-
-/// Normalize single-field copy payloads. Raw configs/logs are not copied with
-/// this helper because their newlines are meaningful.
-fn normalize_copy_value(text: &str) -> String {
-    text.lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Set a status and repaint immediately - so slow privileged calls (which block
@@ -660,21 +659,55 @@ fn handle_key(
                     buf.pop();
                 }
                 KeyCode::Enter => {
-                    let name = backend::sanitize_name(buf.trim());
-                    // Require at least one letter/digit, else sanitize_name would
-                    // silently fall back to "tunnel".
-                    let invalid = !buf.chars().any(|c| c.is_ascii_alphanumeric());
-                    app.mode = Mode::Normal;
-                    if invalid {
-                        app.flash("Name needs a letter or number");
+                    let name = buf.trim().to_string();
+                    if let Err(e) = backend::validate_tunnel_name(&name) {
+                        app.mode = Mode::Message(format!("Invalid tunnel name:\n{e}"));
                     } else if backend::tunnel_exists(&name) {
                         app.mode =
                             Mode::Message(format!("A tunnel named '{name}' already exists."));
                     } else {
-                        create_tunnel(app, terminal, &name)?;
+                        app.mode = Mode::NewPreset { name };
                     }
                 }
                 KeyCode::Char(c) if buf.len() < 15 => buf.push(c),
+                _ => {}
+            }
+            return Ok(());
+        }
+        Mode::NewPreset { name } => {
+            let name = name.clone();
+            match code {
+                KeyCode::Esc => {
+                    app.mode = Mode::Normal;
+                    app.flash("New tunnel cancelled");
+                }
+                KeyCode::Enter | KeyCode::Char('f') | KeyCode::Char('F') => {
+                    app.mode = Mode::Normal;
+                    create_tunnel(
+                        app,
+                        terminal,
+                        &name,
+                        create::TunnelTemplateKind::ClientFullTunnel,
+                    )?;
+                }
+                KeyCode::Char('i') | KeyCode::Char('I') => {
+                    app.mode = Mode::Normal;
+                    create_tunnel(
+                        app,
+                        terminal,
+                        &name,
+                        create::TunnelTemplateKind::InterfaceOnly,
+                    )?;
+                }
+                KeyCode::Char('s') | KeyCode::Char('S') => {
+                    app.mode = Mode::Normal;
+                    create_tunnel(
+                        app,
+                        terminal,
+                        &name,
+                        create::TunnelTemplateKind::ClientSplitTunnel,
+                    )?;
+                }
                 _ => {}
             }
             return Ok(());
@@ -687,10 +720,9 @@ fn handle_key(
                     buf.pop();
                 }
                 KeyCode::Enter => {
-                    let new = backend::sanitize_name(buf.trim());
-                    let invalid = !buf.chars().any(|c| c.is_ascii_alphanumeric());
+                    let new = buf.trim().to_string();
                     app.mode = Mode::Normal;
-                    rename_tunnel(app, &orig, &new, invalid);
+                    rename_tunnel(app, &orig, &new);
                 }
                 KeyCode::Char(c) if buf.len() < 15 => buf.push(c),
                 _ => {}
@@ -1220,8 +1252,16 @@ fn create_tunnel(
     app: &mut App,
     terminal: &mut ratatui::DefaultTerminal,
     name: &str,
+    kind: create::TunnelTemplateKind,
 ) -> io::Result<()> {
-    let template = backend::new_tunnel_template();
+    let private_key = match backend::generate_keypair() {
+        Ok((private, _public)) => private,
+        Err(e) => {
+            app.mode = Mode::Message(format!("Key generation failed:\n{e}"));
+            return Ok(());
+        }
+    };
+    let template = create::generate_template(kind, &private_key);
     let Some(edited) = run_editor(terminal, &template)? else {
         app.flash("New tunnel cancelled");
         return Ok(());
@@ -1237,7 +1277,7 @@ fn create_tunnel(
             } else {
                 ""
             };
-            app.flash(format!("Created {name}{warn}"));
+            app.flash(format!("Created {name} from {}{warn}", kind.label()));
         }
         Err(e) => app.flash(format!("Create failed: {e}")),
     }
@@ -1249,9 +1289,9 @@ fn create_tunnel(
     Ok(())
 }
 
-fn rename_tunnel(app: &mut App, orig: &str, new: &str, invalid: bool) {
-    if invalid {
-        app.flash("Name needs a letter or number");
+fn rename_tunnel(app: &mut App, orig: &str, new: &str) {
+    if let Err(e) = backend::validate_tunnel_name(new) {
+        app.mode = Mode::Message(format!("Invalid tunnel name:\n{e}"));
         return;
     }
     if new == orig {
@@ -1404,6 +1444,18 @@ fn ui(f: &mut Frame, app: &mut App) {
             &format!("Delete tunnel '{name}'?\n\n[y] yes    [n] no"),
         ),
         Mode::InputNew(buf) => render_input(f, "New tunnel name", buf),
+        Mode::NewPreset { name } => render_message(
+            f,
+            "Create tunnel",
+            &format!(
+                "Tunnel '{name}'\n\n\
+                 Enter / f   Client full tunnel\n\
+                 i           Interface only\n\
+                 s           Client split tunnel\n\
+                 Esc         Cancel\n\n\
+                 A generated private key is inserted. Review the config in $EDITOR before it is saved."
+            ),
+        ),
         Mode::InputRename { buf, .. } => render_input(f, "Rename tunnel", buf),
         Mode::ImportBrowse {
             dir,
@@ -1748,23 +1800,4 @@ fn qr_lines(text: &str) -> Result<Vec<Line<'static>>, String> {
         y += 2;
     }
     Ok(lines)
-}
-
-#[cfg(test)]
-mod copy_tests {
-    use super::normalize_copy_value;
-
-    #[test]
-    fn copy_value_normalization_trims_accidental_whitespace() {
-        assert_eq!(normalize_copy_value(" abc "), "abc");
-        assert_eq!(normalize_copy_value("\nabc\n"), "abc");
-        assert_eq!(normalize_copy_value("abc\n"), "abc");
-        assert_eq!(normalize_copy_value("  abc\n  "), "abc");
-        assert_eq!(normalize_copy_value("abc\r\n"), "abc");
-    }
-
-    #[test]
-    fn copy_value_normalization_joins_display_wrapped_fields() {
-        assert_eq!(normalize_copy_value("  one\n  two  \n"), "one two");
-    }
 }

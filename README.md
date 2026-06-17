@@ -81,7 +81,8 @@ systems where a desktop stack is the wrong dependency.
 - Removes temp editor files after editing.
 - Validates before save.
 - Saves through the helper with backups and atomic replacement.
-- Creates new tunnels from a generated template in Easy Mode.
+- Creates new tunnels from Interface-only, full-tunnel, or split-tunnel
+  generated templates in Easy Mode.
 - Generates keypairs and preshared keys.
 - Imports `.conf` files.
 - Imports QR-code images.
@@ -223,6 +224,7 @@ Keys in the main UI:
 |---|---|
 | `Up` / `k`, `Down` / `j` | Move selection, or scroll the Log tab |
 | `Enter` / `a` | Activate or deactivate the selected tunnel |
+| `n` | Create a new tunnel from an Interface-only/full/split preset |
 | `i` | Import a `.conf` file or QR image |
 | `d` | Delete the selected tunnel |
 | `s` | Toggle start-on-boot |
@@ -239,7 +241,6 @@ Advanced mode also enables:
 | Key | Action |
 |---|---|
 | `e` | Edit the selected tunnel in `$VISUAL` / `$EDITOR` / `nano` |
-| `n` | Create a new tunnel from a generated template |
 | `g` | Generate a keypair and preshared key |
 | `c` | Show the running config with `wg showconf` |
 | `K` | Toggle the helper-managed kill switch for an active tunnel |
@@ -344,7 +345,12 @@ This is MIT open source. Fork it to hack on your own ideas.
 | Path | Purpose |
 |---|---|
 | `src/main.rs` | App entrypoint, event loop, key handling, rendering |
-| `src/backend.rs` | Helper client, WireGuard orchestration, parsing, validation |
+| `src/backend.rs` | Helper client, WireGuard/system operations, QR/export |
+| `src/config.rs` | WireGuard config parsing and validation |
+| `src/create.rs` | Easy Mode tunnel templates and defaults |
+| `src/clipboard.rs` | OSC52 single-field copy normalization |
+| `src/secrets.rs` | Secret redaction and script-hook detection |
+| `src/validation.rs` | Tunnel name validation and import-name sanitization |
 | `src/doctor.rs` | Read-only checks and setup hints |
 | `src/bin/wg-helper.rs` | Privileged Rust helper and fixed verb surface |
 | `install.sh` | Distro-aware source installer |

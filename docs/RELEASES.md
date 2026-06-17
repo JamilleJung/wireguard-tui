@@ -108,7 +108,8 @@ Highlights:
   same fixed verb contract.
 - Advanced mode now has `K` to toggle a tunnel-scoped kill switch for active
   tunnels using helper-managed iptables/ip6tables rules.
-- Easy Mode can now create a tunnel from scratch with `n`.
+- Easy Mode can now create a tunnel from scratch with `n`, choose an
+  Interface-only/full-tunnel/split-tunnel preset, then review it in `$EDITOR`.
 - OSC52 copy now normalizes single-field payloads before emitting the terminal
   clipboard escape.
 - Release automation now builds portable x86_64 and aarch64 Linux tarballs.

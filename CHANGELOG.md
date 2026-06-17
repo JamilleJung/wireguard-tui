@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Advanced-mode `K` kill switch toggle backed by helper-managed
   iptables/ip6tables rules for active tunnels.
 - aarch64 Linux release tarballs and Alpine/Void packaging templates.
-- Easy Mode can create a tunnel from scratch with `n`.
+- Easy Mode can create a tunnel from scratch with `n`, preset selection, and
+  `$EDITOR` review.
 
 ### Changed
 - Reframed project docs and package metadata around the small native Linux
