@@ -25,12 +25,13 @@ cd wireguard-tui
 The installer detects your package manager (apt, dnf/yum, pacman, zypper, apk,
 xbps, eopkg), installs `wireguard-tools` plus a C linker, makes sure a Rust
 toolchain is present (via rustup if needed), builds the `wg-tui` binary as your
-own user, and installs the binary, the privileged helper, a desktop entry and an
-icon. By default it sets up a passwordless `sudoers` drop-in scoped to the helper;
+own user, and installs the binary and privileged helper. By default it does not
+install a desktop launcher; `./install.sh --desktop` adds one if you want it.
+By default it sets up a passwordless `sudoers` drop-in scoped to the helper;
 `./install.sh --polkit` writes a polkit rule instead, and `./install.sh uninstall`
-removes everything.
+removes the installed files.
 
-> Note: `--polkit` and `uninstall` are flags for the **installer** (`install.sh`),
+> Note: `--polkit`, `--desktop`, and `uninstall` are flags for the **installer** (`install.sh`),
 > not for `wg-tui`. The `wg-tui` binary itself only accepts `wg-tui`,
 > `wg-tui doctor`, `wg-tui setup`, `wg-tui --version` and `wg-tui --help`.
 
@@ -78,19 +79,22 @@ CI guards quality before anything is tagged. On each change it runs:
 - A shell lint: `bash -n` syntax checks plus `shellcheck -S warning` on the
   scripts (`wg-helper` and `install.sh`) - it hard-fails on any warning, because
   those scripts run with elevated privilege.
+- Negative helper tests prove traversal-style tunnel names are rejected before
+  any filesystem access.
 
 ### The tagged release flow
 
 Cutting a release is triggered by pushing a version tag (for example `v1.5.4`).
 At a high level the release job:
 
-1. Builds the release artifacts (including the mandatory `.deb` - a missing one
+1. Runs the CLI smoke checks and helper shell validation.
+2. Builds the release artifacts (including the mandatory `.deb` - a missing one
    fails the release).
-2. Generates `SHA256SUMS` over the artifacts (using `nullglob` and verifying the
+3. Generates `SHA256SUMS` over the artifacts (using `nullglob` and verifying the
    list is non-empty, so an empty or partial set cannot ship).
-3. Signs `SHA256SUMS` with minisign, producing `SHA256SUMS.minisig`, and publishes
+4. Signs `SHA256SUMS` with minisign, producing `SHA256SUMS.minisig`, and publishes
    `minisign.pub` alongside.
-4. Attaches everything to the GitHub Release for that tag.
+5. Attaches everything to the GitHub Release for that tag.
 
 Because `wg-tui` and `wireguard-gui` are version-aligned, a release of one is cut
 in step with the other so the two stay feature-identical.
@@ -183,7 +187,7 @@ Highlights:
 - New `wg-tui doctor` subcommand: a read-only, plain-language system checklist
   covering WireGuard tools, the privileged helper and its authorization,
   `/etc/wireguard`, systemd and journald. It exits `0` (all OK), `1` (warnings) or
-  `2` (something critical is missing) - perfect to run first over SSH on a new box.
+  `2` (something critical is missing) - useful to run first over SSH on a new box.
 - New `wg-tui setup` subcommand: a guided, confirmation-based fix that offers to
   install `wireguard-tools` via your package manager and points you at the
   installer for the helper. It never connects tunnels or enables start-on-boot.

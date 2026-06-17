@@ -4,12 +4,14 @@ Distro packages so users don't have to run `install.sh` by hand. Each installs:
 
 - the `wg-tui` binary → `/usr/bin`
 - the privileged helper → `/usr/lib/wireguard-tui/wg-helper`
-- the `.desktop` launcher (terminal) + icon
 - the **polkit** rule → `/usr/share/polkit-1/rules.d/49-wireguard-tui.rules`
 
 `wireguard-tools` is the only runtime dependency; `polkit` provides the
 privilege; `systemd` is *optional* (only for start-on-boot). The app itself is
 pure Rust with **no GUI/C library dependencies**.
+
+The desktop launcher/icon files remain in `packaging/` for downstreams that want
+them, but the first-party packages keep the TUI install minimal by default.
 
 ## Arch (AUR) — `aur/PKGBUILD`
 

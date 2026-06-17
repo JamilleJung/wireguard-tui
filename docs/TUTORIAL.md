@@ -60,9 +60,15 @@ xbps, or eopkg - and then:
 - installs `wireguard-tools` (the `wg` / `wg-quick` commands) and a C linker,
 - ensures a Rust toolchain (via `rustup` if you don't already have one),
 - builds the project **as your normal user** (never as root), and
-- installs the `wg-tui` binary, the privileged helper, a desktop file, and a
-  shared icon,
+- installs the `wg-tui` binary and privileged helper,
 - sets up passwordless authorization so day-to-day use never prompts you.
+
+By default the installer does not install a desktop launcher or icon, keeping
+server installs minimal. If you want a local application-menu entry, use:
+
+```sh
+./install.sh --desktop
+```
 
 > It does **not** bundle WireGuard itself - no kernel modules, no vendored
 > `wg`/`wg-quick`. It uses your distro's `wireguard-tools`. WireGuard has been in
@@ -118,7 +124,7 @@ cargo test                   # unit tests (parsing, validation, names)
 
 `wg-tui` has two read-only / guided commands that check and fix your system. They
 do **not** launch the full-screen UI - they print and exit, which makes them
-perfect to run first over SSH.
+useful to run first over SSH.
 
 ### Check your system: wg-tui doctor
 
@@ -301,8 +307,9 @@ This needs **Advanced mode** (press **`m`**).
 
 `wg-tui` **validates the config before saving** - it checks keys, addresses,
 endpoint, and peers, so a typo is caught up front instead of only when
-`wg-quick up` fails later. (A bracketed IPv6 endpoint like `[2001:db8::1]:51820`
-is accepted.)
+`wg-quick up` fails later. The helper also performs a second basic config-shape
+check before replacing files. (A bracketed IPv6 endpoint like
+`[2001:db8::1]:51820` is accepted.)
 
 If the tunnel you edited is **currently running**, the change is applied live with
 `wg syncconf`, so your connection and its peers are not dropped while you tweak it.
@@ -453,7 +460,7 @@ and IP-forwarding questions for servers), see **[docs/DISTROS.md](DISTROS.md)**.
 
 ## 12. Uninstall
 
-Remove the binary, helper, desktop file, icon, and the authorization rule:
+Remove the binary, helper, optional desktop files, and the authorization rule:
 
 ```sh
 ./install.sh uninstall

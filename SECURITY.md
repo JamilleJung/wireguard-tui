@@ -54,7 +54,9 @@ The helper itself:
 - **validates every tunnel name** against `^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`
   and rejects `..`, so `"$WG_DIR/<name>.conf"` can never escape `/etc/wireguard`;
 - writes configs **atomically** (temp file + `rename`, `umask 077`) and keeps a
-  **timestamped 0600 backup** before any overwrite or delete;
+  **timestamped 0600 backup** before any overwrite, rename, or delete;
+- validates the saved config shape in the helper before save/rename, in addition
+  to the unprivileged frontend validation;
 - **logs every mutating action** (with the invoking user) to the journal
   (`logger -t wireguard-tui`).
 

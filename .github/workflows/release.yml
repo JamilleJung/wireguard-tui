@@ -36,6 +36,21 @@ jobs:
       - name: cargo test
         run: cargo test
 
+      - name: Smoke and shell validation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck
+          ./target/release/wg-tui --version | grep -q '^wg-tui '
+          ./target/release/wg-tui --help >/dev/null
+          out="$(./target/release/wg-tui doctor)" && rc=0 || rc=$?
+          echo "$out" | grep -q 'WireGuard tools'
+          test "$rc" -le 2
+          bash -n install.sh
+          bash -n packaging/wg-helper
+          bash -n tests/helper-validation.sh
+          shellcheck -S warning install.sh packaging/wg-helper tests/helper-validation.sh
+          bash tests/helper-validation.sh
+
       # ---------------- binary tarball ----------------
       - name: Build binary tarball
         run: |
@@ -44,8 +59,6 @@ jobs:
           mkdir -p "$D"
           cp target/release/wg-tui "$D/"
           cp packaging/wg-helper "$D/"
-          cp packaging/wireguard-tui.desktop "$D/"
-          cp packaging/wireguard-tui.svg "$D/"
           cp packaging/49-wireguard-tui.rules "$D/"
           cp install.sh README.md LICENSE "$D/"
           tar -czf "${D}.tar.gz" "$D"
