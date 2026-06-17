@@ -97,7 +97,7 @@ systems where a desktop stack is the wrong dependency.
 - Saves live running state back to disk with `wg-quick save`.
 - Toggles start-on-boot with systemd `wg-quick@<name>` when systemd is present.
 - Toggles a helper-managed kill switch for active tunnels using nftables
-  (preferred) or iptables/ip6tables.
+  (preferred) or iptables/ip6tables; auto-allows established SSH traffic.
 - Provides Easy mode for everyday actions and Advanced mode for raw operations.
 - Remembers the Easy/Advanced preference under the user config directory.
 
