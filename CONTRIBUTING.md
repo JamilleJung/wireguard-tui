@@ -6,7 +6,7 @@ Thanks for your interest in improving `wg-tui`!
 
 ```sh
 cargo build
-WGTUI_DEMO=1 cargo run     # sample data, no root, no real configs
+cargo run --release        # talks to real tunnels
 ```
 
 Before opening a PR, please run:
@@ -14,6 +14,7 @@ Before opening a PR, please run:
 ```sh
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
+cargo test
 ```
 
 Both are enforced in CI.

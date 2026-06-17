@@ -69,9 +69,9 @@ CI guards quality before anything is tagged. On each change it runs:
 - `cargo fmt --all -- --check` - formatting must be clean.
 - `cargo clippy --all-targets -- -D warnings` - lints are treated as errors, so
   no warning slips through.
-- `cargo build --release` - the project must compile in release mode. (The unit
-  tests for config parsing, validation and tunnel-name sanitisation live in the
-  tree and run with `cargo test` locally; they are not part of the CI job.)
+- `cargo test` - the unit tests for config parsing, validation and tunnel-name
+  sanitisation run on every push and pull request.
+- `cargo build --release` - the project must compile in release mode.
 - A smoke test: `wg-tui --version` and `wg-tui --help` start and exit cleanly
   without launching the full-screen UI, and `wg-tui doctor` prints its checklist
   and exits with a valid code (0, 1 or 2).

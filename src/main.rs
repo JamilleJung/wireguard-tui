@@ -1232,13 +1232,13 @@ fn rename_tunnel(app: &mut App, orig: &str, new: &str, invalid: bool) {
             return;
         }
     };
-    if let Err(e) = backend::save_config(new, &cfg) {
-        app.flash(format!("Rename failed: {e}"));
-        return;
+    match backend::rename_config(orig, new, &cfg) {
+        Ok(()) => app.flash(format!("Renamed {orig} -> {new}")),
+        Err(e) => {
+            app.flash(format!("Rename failed: {e}"));
+            return;
+        }
     }
-    let _ = backend::deactivate(orig);
-    let _ = backend::delete(orig);
-    app.flash(format!("Renamed {orig} -> {new}"));
     app.reload();
     if let Some(i) = app.tunnels.iter().position(|t| t.name == new) {
         app.state.select(Some(i));
