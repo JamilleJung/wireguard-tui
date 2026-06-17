@@ -6,12 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-06-18
+
+### Security
+- SECURITY.md unified: supported versions, email fallback, threat model, 
+  helper path pinning, `WG_ALLOW_UNSAFE_HELPER`, private key handling,
+  supply chain verification.
+- FwMark detection hardened to exact key-name match (prevents `FwMarkFile` confusion).
+
+### Fixed
+- CHANGELOG wording corrected (removed stale `popup_area` claim, fixed `DetailRow` reference).
+- `+` quick-add-peer key now visible in Advanced footer and help screen.
+- `src/ui/` placeholder module removed.
+
 ## [1.6.3] - 2026-06-18
 
 ### Fixed
 - Clippy warnings eliminated across all targets; `-D warnings` enforced in CI.
 - Terminal QR no longer fails with "too large" on wide terminals.
-- `DetailRow` text centering regression caused by copy-area `TouchArea`.
+- Shared Slint component fixes synchronized with the desktop client.
 
 ### Changed
 - Markdown documentation fully audited and synchronized with v1.6.3 codebase.
@@ -31,7 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GUI: `DetailRow` copy area uses clickable text + ⧉ icon instead of large
   "Copy" button; fixed text centering regression.
 - GUI: `StatusDot` component extracted to `ui/components/statusdot.slint`.
-- TUI: `popup_area` helper moved to `src/ui/helpers.rs`.
 - Log limits increased to 1000 lines (was 300/200).
 
 ### Fixed

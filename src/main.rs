@@ -8,7 +8,6 @@ mod config;
 mod create;
 mod doctor;
 mod secrets;
-mod ui;
 mod validation;
 
 use std::io;
@@ -1453,7 +1452,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     let hint = if app.easy {
         " Up/Dn move  Enter/a connect/disconnect  n new  i import  s on-boot  d remove  Q qr  y copy-key  Tab log  m advanced  ? help  q quit"
     } else {
-        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  K kill  p save-live  Q qr  x export  Tab log  m easy  ? help  q quit";
+        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  K kill  + add-peer  p save-live  Q qr  x export  Tab log  m easy  ? help  q quit";
         let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  y copy-key  d del  Q qr  Tab log  m easy  ? help  q quit";
         if full.chars().count() as u16 <= chunks[2].width {
             full
@@ -1777,7 +1776,7 @@ fn render_help(f: &mut Frame) {
   m              Toggle Easy / Advanced mode    r   Refresh now
 
   Advanced mode also adds:
-  e edit in $EDITOR   g generate keys   c show running config
+  e edit in $EDITOR   g generate keys   c show running config   + quick-add peer
   K kill switch       p save live state   R rename   x export all tunnels
 
   ?              This help    q / Esc   Quit";
