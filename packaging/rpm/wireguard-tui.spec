@@ -1,5 +1,5 @@
 Name:           wireguard-tui
-Version:        1.5.4
+Version:        1.5.5
 Release:        1%{?dist}
 Summary:        A native Linux terminal UI (TUI) for managing WireGuard tunnels
 
@@ -33,9 +33,7 @@ cargo test --release --locked
 
 %install
 install -Dm0755 target/release/wg-tui %{buildroot}%{_bindir}/wg-tui
-install -Dm0755 packaging/wg-helper %{buildroot}%{_prefix}/lib/%{name}/wg-helper
-install -Dm0644 packaging/wireguard-tui.desktop %{buildroot}%{_datadir}/applications/%{name}.desktop
-install -Dm0644 packaging/wireguard-tui.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/%{name}.svg
+install -Dm0755 target/release/wg-helper %{buildroot}%{_prefix}/lib/%{name}/wg-helper
 install -Dm0644 packaging/49-wireguard-tui.rules %{buildroot}%{_datadir}/polkit-1/rules.d/49-wireguard-tui.rules
 
 %files
@@ -44,8 +42,6 @@ install -Dm0644 packaging/49-wireguard-tui.rules %{buildroot}%{_datadir}/polkit-
 %{_bindir}/wg-tui
 %dir %{_prefix}/lib/%{name}
 %{_prefix}/lib/%{name}/wg-helper
-%{_datadir}/applications/%{name}.desktop
-%{_datadir}/icons/hicolor/scalable/apps/%{name}.svg
 %{_datadir}/polkit-1/rules.d/49-wireguard-tui.rules
 
 %changelog

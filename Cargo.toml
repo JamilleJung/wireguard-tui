@@ -1,15 +1,20 @@
 [package]
 name = "wireguard-tui"
-version = "1.5.4"
-edition = "2021"
-description = "A native Linux terminal UI (TUI) for managing WireGuard tunnels — the same features as the desktop client, in your terminal."
+version = "1.5.5"
+edition = "2024"
+description = "A native Linux terminal UI for managing plain WireGuard tunnels with wg and wg-quick."
 license = "MIT"
 repository = "https://github.com/JamilleJung/wireguard-tui"
 readme = "README.md"
+default-run = "wg-tui"
 
 [[bin]]
 name = "wg-tui"
 path = "src/main.rs"
+
+[[bin]]
+name = "wg-helper"
+path = "src/bin/wg-helper.rs"
 
 [dependencies]
 ratatui = "0.29"
@@ -33,13 +38,11 @@ copyright = "2026 wireguard-tui contributors"
 license-file = ["LICENSE", "0"]
 section = "net"
 priority = "optional"
-extended-description = "A native Linux terminal UI (TUI) for managing WireGuard tunnels: tunnel list, live status, activate/deactivate, import, an editor, key generation and QR display — entirely in the terminal."
+extended-description = "A native Linux terminal UI for managing plain WireGuard tunnels through wg and wg-quick: tunnel list, live status, activate/deactivate, import, editing, key generation, QR display, and a small privileged helper."
 depends = "$auto, wireguard-tools, polkit-1 | policykit-1"
 assets = [
     ["target/release/wg-tui", "usr/bin/", "755"],
-    ["packaging/wg-helper", "usr/lib/wireguard-tui/wg-helper", "755"],
-    ["packaging/wireguard-tui.desktop", "usr/share/applications/", "644"],
-    ["packaging/wireguard-tui.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["target/release/wg-helper", "usr/lib/wireguard-tui/wg-helper", "755"],
     ["packaging/49-wireguard-tui.rules", "etc/polkit-1/rules.d/", "644"],
     ["README.md", "usr/share/doc/wireguard-tui/README.md", "644"],
 ]

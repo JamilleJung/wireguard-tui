@@ -4,12 +4,14 @@ Distro packages so users don't have to run `install.sh` by hand. Each installs:
 
 - the `wg-tui` binary → `/usr/bin`
 - the privileged helper → `/usr/lib/wireguard-tui/wg-helper`
-- the `.desktop` launcher (terminal) + icon
 - the **polkit** rule → `/usr/share/polkit-1/rules.d/49-wireguard-tui.rules`
 
 `wireguard-tools` is the only runtime dependency; `polkit` provides the
 privilege; `systemd` is *optional* (only for start-on-boot). The app itself is
 pure Rust with **no GUI/C library dependencies**.
+
+The desktop launcher/icon files remain in `packaging/` for downstreams that want
+them, but the first-party packages keep the TUI install minimal by default.
 
 ## Arch (AUR) — `aur/PKGBUILD`
 
@@ -31,8 +33,22 @@ release.
 
 Produced by the release workflow via `cargo deb` (`[package.metadata.deb]`).
 
+## Alpine — `apk/APKBUILD`
+
+Template for Alpine maintainers. It builds the single TUI binary plus the Rust
+`wg-helper`, installs the polkit rule, and keeps runtime dependencies to
+`wireguard-tools` and `polkit`. Replace `sha512sums="SKIP"` with the real
+release tarball checksum before submitting to an Alpine repository.
+
+## Void Linux — `void/template`
+
+Template for Void maintainers. It keeps the package terminal-only: `wg-tui`,
+`wg-helper`, the polkit rule, and no GUI libraries. Replace
+`checksum=@CHECKSUM@` with the real release tarball checksum before submitting.
+
 ## Flatpak
 
 Not provided: a terminal tool that manages system WireGuard as root (via
 sudoers/polkit, writing `/etc/wireguard`) does not fit the Flatpak sandbox. Use
-the native install, the AUR package, the RPM/COPR build, or the `.deb`.
+the native install, the AUR package, the RPM/COPR build, Alpine/Void templates,
+or the `.deb`.

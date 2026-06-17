@@ -4,6 +4,7 @@
 #
 #   ./install.sh              build + install (auto-installs missing deps)
 #   ./install.sh --polkit     use a polkit rule instead of a sudoers drop-in
+#   ./install.sh --desktop    also install a desktop entry/icon (opt-in)
 #   ./install.sh uninstall    remove everything
 #
 # Works on Debian/Ubuntu, Fedora/RHEL, Arch/Manjaro, openSUSE, Alpine, Void
@@ -36,12 +37,14 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # ---------------------------------------------------------------------------
 # Args
 # ---------------------------------------------------------------------------
-ACTION="install"; AUTH_MODE="sudoers"
+ACTION="install"; AUTH_MODE="sudoers"; INSTALL_DESKTOP=0
 for arg in "$@"; do
     case "$arg" in
         uninstall)  ACTION="uninstall" ;;
         --polkit)   AUTH_MODE="polkit" ;;
         --sudoers)  AUTH_MODE="sudoers" ;;
+        --desktop)  INSTALL_DESKTOP=1 ;;
+        --no-desktop) INSTALL_DESKTOP=0 ;;
         *) ;;
     esac
 done
@@ -261,13 +264,19 @@ ensure_resolvconf
 build_app
 
 say "Installing into $PREFIX"
-as_root install -d "$LIBDIR" "$PREFIX/bin" "$PREFIX/share/applications" "$ICON_DIR"
+as_root install -d "$LIBDIR" "$PREFIX/bin"
 as_root install -m755 "$HERE/target/release/wg-tui" "$BIN"
-as_root install -m755 "$HERE/packaging/wg-helper" "$HELPER"
-as_root install -m644 "$HERE/packaging/wireguard-tui.desktop" "$DESKTOP"
-as_root install -m644 "$HERE/packaging/wireguard-tui.svg" "$ICON"
-command -v update-desktop-database >/dev/null 2>&1 && \
-    as_root update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
+as_root install -m755 "$HERE/target/release/wg-helper" "$HELPER"
+if [ "$INSTALL_DESKTOP" -eq 1 ]; then
+    as_root install -d "$PREFIX/share/applications" "$ICON_DIR"
+    as_root install -m644 "$HERE/packaging/wireguard-tui.desktop" "$DESKTOP"
+    as_root install -m644 "$HERE/packaging/wireguard-tui.svg" "$ICON"
+    command -v update-desktop-database >/dev/null 2>&1 && \
+        as_root update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
+    ok "Desktop entry installed."
+else
+    ok "Skipped desktop entry (use ./install.sh --desktop to add it)."
+fi
 ok "Files installed."
 
 # ---------------------------------------------------------------------------

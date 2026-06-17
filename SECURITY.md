@@ -32,9 +32,10 @@ possible, and to keep everything else unprivileged.
 ## The privilege boundary
 
 The TUI runs as your normal user. **The only thing that runs as root is one
-small shell script**, `packaging/wg-helper`, invoked as
+small Rust helper binary**, `wg-helper` (`src/bin/wg-helper.rs` in source),
+invoked as
 `sudo -n wg-helper <verb> [name]` (sudoers mode) or `pkexec wg-helper …`
-(polkit / fallback). Authorisation is scoped to **exactly that one script path**:
+(polkit / fallback). Authorisation is scoped to **exactly that one helper path**:
 
 - the **sudoers** drop-in grants passwordless execution of only
   `/usr/local/lib/wireguard-tui/wg-helper` for your user;
@@ -54,9 +55,14 @@ The helper itself:
 - **validates every tunnel name** against `^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`
   and rejects `..`, so `"$WG_DIR/<name>.conf"` can never escape `/etc/wireguard`;
 - writes configs **atomically** (temp file + `rename`, `umask 077`) and keeps a
-  **timestamped 0600 backup** before any overwrite or delete;
+  **timestamped 0600 backup** before any overwrite, rename, or delete;
+- validates the saved config shape in the helper before save/rename, in addition
+  to the unprivileged frontend validation;
 - **logs every mutating action** (with the invoking user) to the journal
   (`logger -t wireguard-tui`).
+- can add/remove tunnel-scoped iptables/ip6tables OUTPUT rules for an active
+  `wg-quick` tunnel when the user toggles the kill switch. It does not install a
+  daemon or own the system firewall permanently.
 
 ## `PostUp` / `PreUp` / `PostDown` / `PreDown` run as root
 

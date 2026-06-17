@@ -39,5 +39,5 @@
 <text x="14.0" y="509.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
 <text x="14.0" y="527.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
 <text x="14.0" y="546.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">└──────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────┘</text>
-<text x="14.0" y="564.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> Up/Dn move  Enter/a connect/disconnect  i import  s on-boot  d remove  Q qr  Tab log  m advanced  ? help  q qui</text>
+<text x="14.0" y="564.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> Up/Dn move  Enter/a connect/disconnect  n new  i import  s on-boot  d remove  Q qr  Tab log  m advanced  ? help</text>
 </svg>

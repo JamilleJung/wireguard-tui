@@ -1,0 +1,31 @@
+# Maintainer: downstream packager <packager@example.invalid>
+pkgname=wireguard-tui
+pkgver=1.5.5
+pkgrel=0
+pkgdesc="Native terminal UI for plain WireGuard tunnels"
+url="https://github.com/JamilleJung/wireguard-tui"
+arch="x86_64 aarch64"
+license="MIT"
+depends="wireguard-tools polkit"
+makedepends="cargo rust build-base pkgconf"
+source="$pkgname-$pkgver.tar.gz::https://github.com/JamilleJung/wireguard-tui/archive/refs/tags/v$pkgver.tar.gz"
+builddir="$srcdir/$pkgname-$pkgver"
+options="net"
+
+build() {
+	cargo build --release --locked
+}
+
+check() {
+	cargo test --locked
+}
+
+package() {
+	install -Dm755 target/release/wg-tui "$pkgdir/usr/bin/wg-tui"
+	install -Dm755 target/release/wg-helper "$pkgdir/usr/lib/wireguard-tui/wg-helper"
+	install -Dm644 packaging/49-wireguard-tui.rules \
+		"$pkgdir/usr/share/polkit-1/rules.d/49-wireguard-tui.rules"
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/wireguard-tui/LICENSE"
+}
+
+sha512sums="SKIP"

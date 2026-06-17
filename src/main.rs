@@ -3,7 +3,12 @@
 //! key generation, QR, export, start-on-boot), driven entirely by the keyboard.
 
 mod backend;
+mod clipboard;
+mod config;
+mod create;
 mod doctor;
+mod secrets;
+mod validation;
 
 use std::io;
 use std::io::Write as _;
@@ -57,6 +62,10 @@ enum Mode {
     ConfirmDelete(String),
     /// Text entry for a brand-new tunnel name.
     InputNew(String),
+    /// Preset choice for a brand-new tunnel after the name is valid.
+    NewPreset {
+        name: String,
+    },
     /// Text entry to rename `orig`.
     InputRename {
         orig: String,
@@ -168,12 +177,12 @@ impl App {
             }
         }
         // Only apply detail that still matches the current selection.
-        if let Some((name, d)) = snap.detail {
-            if Some(&name) == self.selected_name().as_ref() {
-                let (rx, tx) = (d.rx_bytes, d.tx_bytes);
-                self.detail = Some(d);
-                self.update_speed(&name, rx, tx);
-            }
+        if let Some((name, d)) = snap.detail
+            && Some(&name) == self.selected_name().as_ref()
+        {
+            let (rx, tx) = (d.rx_bytes, d.tx_bytes);
+            self.detail = Some(d);
+            self.update_speed(&name, rx, tx);
         }
         if let Some(log) = snap.log {
             self.log = log;
@@ -263,11 +272,11 @@ impl App {
 
     /// Clear the footer status once it has been shown for `STATUS_TTL`.
     fn expire_status(&mut self) {
-        if let Some(at) = self.status_at {
-            if at.elapsed() >= STATUS_TTL {
-                self.status.clear();
-                self.status_at = None;
-            }
+        if let Some(at) = self.status_at
+            && at.elapsed() >= STATUS_TTL
+        {
+            self.status.clear();
+            self.status_at = None;
         }
     }
 }
@@ -304,10 +313,10 @@ fn is_advanced_key(code: KeyCode) -> bool {
     matches!(
         code,
         KeyCode::Char('e') // edit raw config
-            | KeyCode::Char('n') // new from scratch
             | KeyCode::Char('g') // generate keys
             | KeyCode::Char('c') // show running config
             | KeyCode::Char('p') // save live state
+            | KeyCode::Char('K') // helper-managed kill switch
             | KeyCode::Char('R') // rename
             | KeyCode::Char('x') // export all
     )
@@ -343,6 +352,10 @@ fn base64(data: &[u8]) -> String {
 /// a no-op elsewhere. Doesn't draw, so it won't disturb the ratatui frame.
 fn osc52_copy(text: &str) {
     use std::io::Write as _;
+    let text = clipboard::normalize_single_field_copy_value(text);
+    if text.is_empty() {
+        return;
+    }
     let seq = format!("\x1b]52;c;{}\x07", base64(text.as_bytes()));
     let mut out = std::io::stdout();
     let _ = out.write_all(seq.as_bytes());
@@ -368,10 +381,10 @@ fn run_doctor() -> i32 {
     println!("wg-tui doctor\n");
     for c in &report.checks {
         println!("  [{:<7}] {}: {}", c.status.label(), c.name, c.detail);
-        if !matches!(c.status, doctor::Status::Ok) {
-            if let Some(fix) = &c.fix {
-                println!("            fix: {fix}");
-            }
+        if !matches!(c.status, doctor::Status::Ok)
+            && let Some(fix) = &c.fix
+        {
+            println!("            fix: {fix}");
         }
     }
     println!();
@@ -466,16 +479,16 @@ fn run_setup() -> i32 {
     // the classic minimal-Debian gap (wg-quick aborts with "resolvconf: command
     // not found"). systemd-resolved counts, so this only fires when neither is
     // present. Non-critical: tunnels without a DNS line work regardless.
-    if !doctor::dns_ok() {
-        if let Some(cmd) = doctor::install_resolvconf_command() {
-            println!("Tunnels with a 'DNS =' line need a resolvconf provider (none found here).");
-            offer_root_install(
-                "A resolvconf provider",
-                &cmd,
-                &doctor::install_resolvconf_hint(),
-            );
-            println!();
-        }
+    if !doctor::dns_ok()
+        && let Some(cmd) = doctor::install_resolvconf_command()
+    {
+        println!("Tunnels with a 'DNS =' line need a resolvconf provider (none found here).");
+        offer_root_install(
+            "A resolvconf provider",
+            &cmd,
+            &doctor::install_resolvconf_hint(),
+        );
+        println!();
     }
 
     // Helper install can't be done safely from here - point at the installer.
@@ -548,12 +561,11 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
         }
         let timeout = timeout.max(Duration::from_millis(50));
 
-        if event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    handle_key(&mut app, terminal, key.code, key.modifiers)?;
-                }
-            }
+        if event::poll(timeout)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            handle_key(&mut app, terminal, key.code, key.modifiers)?;
         }
     }
     Ok(())
@@ -562,38 +574,40 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
 /// Background thread: does the blocking `wg`/`sudo` calls so the UI never
 /// freezes, dropping the result into `poll_out` for the UI loop to apply.
 fn spawn_poller(poll_in: Arc<Mutex<PollIn>>, poll_out: Arc<Mutex<Option<Snapshot>>>) {
-    std::thread::spawn(move || loop {
-        let (sel, want_log) = {
-            let pi = poll_in.lock().unwrap();
-            (pi.selected.clone(), pi.want_log)
-        };
-        let snap = match backend::try_list_tunnels() {
-            Ok(tunnels) => {
-                let detail = sel
-                    .as_ref()
-                    .filter(|n| tunnels.iter().any(|t| &t.name == *n))
-                    .map(|n| (n.clone(), backend::get_detail(n)));
-                let log = if want_log {
-                    Some(backend::get_log())
-                } else {
-                    None
-                };
-                Snapshot {
-                    tunnels: Some(tunnels),
-                    detail,
-                    log,
-                    error: None,
+    std::thread::spawn(move || {
+        loop {
+            let (sel, want_log) = {
+                let pi = poll_in.lock().unwrap();
+                (pi.selected.clone(), pi.want_log)
+            };
+            let snap = match backend::try_list_tunnels() {
+                Ok(tunnels) => {
+                    let detail = sel
+                        .as_ref()
+                        .filter(|n| tunnels.iter().any(|t| &t.name == *n))
+                        .map(|n| (n.clone(), backend::get_detail(n)));
+                    let log = if want_log {
+                        Some(backend::get_log())
+                    } else {
+                        None
+                    };
+                    Snapshot {
+                        tunnels: Some(tunnels),
+                        detail,
+                        log,
+                        error: None,
+                    }
                 }
-            }
-            Err(e) => Snapshot {
-                tunnels: None,
-                detail: None,
-                log: None,
-                error: Some(format!("Helper error: {e}")),
-            },
-        };
-        *poll_out.lock().unwrap() = Some(snap);
-        std::thread::sleep(TICK);
+                Err(e) => Snapshot {
+                    tunnels: None,
+                    detail: None,
+                    log: None,
+                    error: Some(format!("Helper error: {e}")),
+                },
+            };
+            *poll_out.lock().unwrap() = Some(snap);
+            std::thread::sleep(TICK);
+        }
     });
 }
 
@@ -645,21 +659,55 @@ fn handle_key(
                     buf.pop();
                 }
                 KeyCode::Enter => {
-                    let name = backend::sanitize_name(buf.trim());
-                    // Require at least one letter/digit, else sanitize_name would
-                    // silently fall back to "tunnel".
-                    let invalid = !buf.chars().any(|c| c.is_ascii_alphanumeric());
-                    app.mode = Mode::Normal;
-                    if invalid {
-                        app.flash("Name needs a letter or number");
+                    let name = buf.trim().to_string();
+                    if let Err(e) = backend::validate_tunnel_name(&name) {
+                        app.mode = Mode::Message(format!("Invalid tunnel name:\n{e}"));
                     } else if backend::tunnel_exists(&name) {
                         app.mode =
                             Mode::Message(format!("A tunnel named '{name}' already exists."));
                     } else {
-                        create_tunnel(app, terminal, &name)?;
+                        app.mode = Mode::NewPreset { name };
                     }
                 }
                 KeyCode::Char(c) if buf.len() < 15 => buf.push(c),
+                _ => {}
+            }
+            return Ok(());
+        }
+        Mode::NewPreset { name } => {
+            let name = name.clone();
+            match code {
+                KeyCode::Esc => {
+                    app.mode = Mode::Normal;
+                    app.flash("New tunnel cancelled");
+                }
+                KeyCode::Enter | KeyCode::Char('f') | KeyCode::Char('F') => {
+                    app.mode = Mode::Normal;
+                    create_tunnel(
+                        app,
+                        terminal,
+                        &name,
+                        create::TunnelTemplateKind::ClientFullTunnel,
+                    )?;
+                }
+                KeyCode::Char('i') | KeyCode::Char('I') => {
+                    app.mode = Mode::Normal;
+                    create_tunnel(
+                        app,
+                        terminal,
+                        &name,
+                        create::TunnelTemplateKind::InterfaceOnly,
+                    )?;
+                }
+                KeyCode::Char('s') | KeyCode::Char('S') => {
+                    app.mode = Mode::Normal;
+                    create_tunnel(
+                        app,
+                        terminal,
+                        &name,
+                        create::TunnelTemplateKind::ClientSplitTunnel,
+                    )?;
+                }
                 _ => {}
             }
             return Ok(());
@@ -672,10 +720,9 @@ fn handle_key(
                     buf.pop();
                 }
                 KeyCode::Enter => {
-                    let new = backend::sanitize_name(buf.trim());
-                    let invalid = !buf.chars().any(|c| c.is_ascii_alphanumeric());
+                    let new = buf.trim().to_string();
                     app.mode = Mode::Normal;
-                    rename_tunnel(app, &orig, &new, invalid);
+                    rename_tunnel(app, &orig, &new);
                 }
                 KeyCode::Char(c) if buf.len() < 15 => buf.push(c),
                 _ => {}
@@ -700,10 +747,11 @@ fn handle_key(
                 }
                 // Space toggles a file's mark for bulk import (dirs can't be marked).
                 KeyCode::Char(' ') => {
-                    if let Some(e) = entries.get(*sel) {
-                        if !e.is_dir && !marked.remove(&e.path) {
-                            marked.insert(e.path.clone());
-                        }
+                    if let Some(e) = entries.get(*sel)
+                        && !e.is_dir
+                        && !marked.remove(&e.path)
+                    {
+                        marked.insert(e.path.clone());
                     }
                 }
                 KeyCode::Backspace | KeyCode::Left | KeyCode::Char('h') => {
@@ -814,6 +862,7 @@ fn handle_key(
             }
         }
         KeyCode::Char('s') => toggle_autostart(app, terminal)?,
+        KeyCode::Char('K') => toggle_killswitch(app, terminal)?,
         KeyCode::Char('i') => open_import_browser(app),
         KeyCode::Char('g') => generate_show(app),
         KeyCode::Char('c') => show_running(app),
@@ -886,6 +935,25 @@ fn toggle_autostart(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> i
             if want { "enabled" } else { "disabled" }
         )),
         Err(e) => app.flash(format!("Failed: {e}")),
+    }
+    app.load_detail();
+    Ok(())
+}
+
+fn toggle_killswitch(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
+    let Some(d) = &app.detail else { return Ok(()) };
+    if !d.active {
+        app.flash("Kill switch needs an active tunnel");
+        return Ok(());
+    }
+    let (name, want) = (d.name.clone(), !d.killswitch);
+    flash_now(app, terminal, format!("Updating kill switch for {name}..."))?;
+    match backend::set_killswitch(&name, want) {
+        Ok(()) => app.flash(format!(
+            "Kill switch {} for {name}",
+            if want { "enabled" } else { "disabled" }
+        )),
+        Err(e) => app.mode = Mode::Message(format!("Kill switch failed:\n\n{e}")),
     }
     app.load_detail();
     Ok(())
@@ -1113,11 +1181,11 @@ fn import_files(app: &mut App, paths: &[PathBuf]) {
         app.flash(format!("Nothing imported ({skipped} skipped/invalid)"));
     }
     app.reload();
-    if let Some(name) = last {
-        if let Some(i) = app.tunnels.iter().position(|t| t.name == name) {
-            app.state.select(Some(i));
-            app.load_detail();
-        }
+    if let Some(name) = last
+        && let Some(i) = app.tunnels.iter().position(|t| t.name == name)
+    {
+        app.state.select(Some(i));
+        app.load_detail();
     }
 }
 
@@ -1184,8 +1252,16 @@ fn create_tunnel(
     app: &mut App,
     terminal: &mut ratatui::DefaultTerminal,
     name: &str,
+    kind: create::TunnelTemplateKind,
 ) -> io::Result<()> {
-    let template = backend::new_tunnel_template();
+    let private_key = match backend::generate_keypair() {
+        Ok((private, _public)) => private,
+        Err(e) => {
+            app.mode = Mode::Message(format!("Key generation failed:\n{e}"));
+            return Ok(());
+        }
+    };
+    let template = create::generate_template(kind, &private_key);
     let Some(edited) = run_editor(terminal, &template)? else {
         app.flash("New tunnel cancelled");
         return Ok(());
@@ -1201,7 +1277,7 @@ fn create_tunnel(
             } else {
                 ""
             };
-            app.flash(format!("Created {name}{warn}"));
+            app.flash(format!("Created {name} from {}{warn}", kind.label()));
         }
         Err(e) => app.flash(format!("Create failed: {e}")),
     }
@@ -1213,9 +1289,9 @@ fn create_tunnel(
     Ok(())
 }
 
-fn rename_tunnel(app: &mut App, orig: &str, new: &str, invalid: bool) {
-    if invalid {
-        app.flash("Name needs a letter or number");
+fn rename_tunnel(app: &mut App, orig: &str, new: &str) {
+    if let Err(e) = backend::validate_tunnel_name(new) {
+        app.mode = Mode::Message(format!("Invalid tunnel name:\n{e}"));
         return;
     }
     if new == orig {
@@ -1232,13 +1308,13 @@ fn rename_tunnel(app: &mut App, orig: &str, new: &str, invalid: bool) {
             return;
         }
     };
-    if let Err(e) = backend::save_config(new, &cfg) {
-        app.flash(format!("Rename failed: {e}"));
-        return;
+    match backend::rename_config(orig, new, &cfg) {
+        Ok(()) => app.flash(format!("Renamed {orig} -> {new}")),
+        Err(e) => {
+            app.flash(format!("Rename failed: {e}"));
+            return;
+        }
     }
-    let _ = backend::deactivate(orig);
-    let _ = backend::delete(orig);
-    app.flash(format!("Renamed {orig} -> {new}"));
     app.reload();
     if let Some(i) = app.tunnels.iter().position(|t| t.name == new) {
         app.state.select(Some(i));
@@ -1335,9 +1411,9 @@ fn ui(f: &mut Frame, app: &mut App) {
     // actions; Advanced shows everything (with a compact fallback on narrow
     // terminals). Both keep ? help / q quit visible.
     let hint = if app.easy {
-        " Up/Dn move  Enter/a connect/disconnect  i import  s on-boot  d remove  Q qr  y copy-key  Tab log  m advanced  ? help  q quit"
+        " Up/Dn move  Enter/a connect/disconnect  n new  i import  s on-boot  d remove  Q qr  y copy-key  Tab log  m advanced  ? help  q quit"
     } else {
-        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  p save-live  Q qr  x export  Tab log  m easy  ? help  q quit";
+        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  K kill  p save-live  Q qr  x export  Tab log  m easy  ? help  q quit";
         let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  y copy-key  d del  Q qr  Tab log  m easy  ? help  q quit";
         if full.chars().count() as u16 <= chunks[2].width {
             full
@@ -1368,6 +1444,18 @@ fn ui(f: &mut Frame, app: &mut App) {
             &format!("Delete tunnel '{name}'?\n\n[y] yes    [n] no"),
         ),
         Mode::InputNew(buf) => render_input(f, "New tunnel name", buf),
+        Mode::NewPreset { name } => render_message(
+            f,
+            "Create tunnel",
+            &format!(
+                "Tunnel '{name}'\n\n\
+                 Enter / f   Client full tunnel\n\
+                 i           Interface only\n\
+                 s           Client split tunnel\n\
+                 Esc         Cancel\n\n\
+                 A generated private key is inserted. Review the config in $EDITOR before it is saved."
+            ),
+        ),
         Mode::InputRename { buf, .. } => render_input(f, "Rename tunnel", buf),
         Mode::ImportBrowse {
             dir,
@@ -1528,6 +1616,7 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
         lines.push(kv("Addresses", &dash(&d.addresses)));
         lines.push(kv("DNS", &dash(&d.dns)));
         lines.push(kv("Start on boot", if d.autostart { "Yes" } else { "No" }));
+        lines.push(kv("Kill switch", if d.killswitch { "Yes" } else { "No" }));
 
         for (i, p) in d.peers.iter().enumerate() {
             lines.push(Line::from(""));
@@ -1554,13 +1643,7 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
         ));
         lines.push(Line::from(""));
         lines.push(Line::from("  i   Import a .conf file or QR image"));
-        if !app.easy {
-            lines.push(Line::from("  n   Create a new tunnel from scratch"));
-        } else {
-            lines.push(Line::from(
-                "  (press  m  for Advanced mode to create one from scratch)",
-            ));
-        }
+        lines.push(Line::from("  n   Create a new tunnel from scratch"));
     }
 
     let p = Paragraph::new(lines)
@@ -1644,6 +1727,7 @@ fn render_help(f: &mut Frame) {
     let help = "\
   Up / k, Dn / j   Move selection (scroll the Log tab)
   Enter / a      Activate or deactivate the selected tunnel
+  n              Create a new tunnel from scratch
   i              Import a tunnel (file browser; Space marks many, Enter imports)
   d              Delete the selected tunnel
   s              Toggle start-on-boot for the selected tunnel
@@ -1653,8 +1737,8 @@ fn render_help(f: &mut Frame) {
   m              Toggle Easy / Advanced mode    r   Refresh now
 
   Advanced mode also adds:
-  e edit in $EDITOR   n new tunnel   g generate keys   c show running config
-  p save live state   R rename   x export all tunnels
+  e edit in $EDITOR   g generate keys   c show running config
+  K kill switch       p save live state   R rename   x export all tunnels
 
   ?              This help    q / Esc   Quit";
     let area = popup_area(f.area(), 70, 23);
