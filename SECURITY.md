@@ -65,7 +65,8 @@ The helper itself:
   with an iptables/ip6tables fallback. It never flushes user rules and cleans up
   on disable. It does not install a daemon or own the system firewall
   permanently.
-- warns (stderr) before enabling a kill switch when `$SSH_CONNECTION` is set.
+- auto-allows established SSH return traffic when `$SSH_CONNECTION` is set,
+  preventing accidental session lock-out.
 
 ## `PostUp` / `PreUp` / `PostDown` / `PreDown` run as root
 

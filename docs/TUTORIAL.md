@@ -4,7 +4,7 @@ A complete, beginner-friendly walkthrough of `wg-tui`, the terminal UI for
 managing WireGuard tunnels on Linux. No prior WireGuard knowledge is assumed.
 Every command here is copy-pasteable.
 
-This is the current release: **1.6.0**.
+This is the current release: **1.6.3**.
 
 ---
 
