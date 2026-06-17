@@ -33,7 +33,7 @@ cargo test --release --locked
 
 %install
 install -Dm0755 target/release/wg-tui %{buildroot}%{_bindir}/wg-tui
-install -Dm0755 packaging/wg-helper %{buildroot}%{_prefix}/lib/%{name}/wg-helper
+install -Dm0755 target/release/wg-helper %{buildroot}%{_prefix}/lib/%{name}/wg-helper
 install -Dm0644 packaging/49-wireguard-tui.rules %{buildroot}%{_datadir}/polkit-1/rules.d/49-wireguard-tui.rules
 
 %files

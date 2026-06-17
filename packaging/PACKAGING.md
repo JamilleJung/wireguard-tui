@@ -33,8 +33,22 @@ release.
 
 Produced by the release workflow via `cargo deb` (`[package.metadata.deb]`).
 
+## Alpine — `apk/APKBUILD`
+
+Template for Alpine maintainers. It builds the single TUI binary plus the Rust
+`wg-helper`, installs the polkit rule, and keeps runtime dependencies to
+`wireguard-tools` and `polkit`. Replace `sha512sums="SKIP"` with the real
+release tarball checksum before submitting to an Alpine repository.
+
+## Void Linux — `void/template`
+
+Template for Void maintainers. It keeps the package terminal-only: `wg-tui`,
+`wg-helper`, the polkit rule, and no GUI libraries. Replace
+`checksum=@CHECKSUM@` with the real release tarball checksum before submitting.
+
 ## Flatpak
 
 Not provided: a terminal tool that manages system WireGuard as root (via
 sudoers/polkit, writing `/etc/wireguard`) does not fit the Flatpak sandbox. Use
-the native install, the AUR package, the RPM/COPR build, or the `.deb`.
+the native install, the AUR package, the RPM/COPR build, Alpine/Void templates,
+or the `.deb`.

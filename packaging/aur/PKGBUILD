@@ -34,7 +34,7 @@ check() {
 package() {
     cd "$pkgname-$pkgver"
     install -Dm755 target/release/wg-tui "$pkgdir/usr/bin/wg-tui"
-    install -Dm755 packaging/wg-helper "$pkgdir/usr/lib/wireguard-tui/wg-helper"
+    install -Dm755 target/release/wg-helper "$pkgdir/usr/lib/wireguard-tui/wg-helper"
     install -Dm644 packaging/49-wireguard-tui.rules "$pkgdir/usr/share/polkit-1/rules.d/49-wireguard-tui.rules"
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

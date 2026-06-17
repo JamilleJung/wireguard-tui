@@ -35,8 +35,9 @@ removes the installed files.
 > not for `wg-tui`. The `wg-tui` binary itself only accepts `wg-tui`,
 > `wg-tui doctor`, `wg-tui setup`, `wg-tui --version` and `wg-tui --help`.
 
-If you prefer a downloaded artifact, each release also ships build outputs (such
-as a `.deb`) together with the signing files described next.
+If you prefer a downloaded artifact, each release also ships build outputs such
+as `.deb`, x86_64 Linux tarball, aarch64 Linux tarball, and the signing files
+described next.
 
 ## How artifacts are signed and how to verify them
 
@@ -76,10 +77,8 @@ CI guards quality before anything is tagged. On each change it runs:
 - A smoke test: `wg-tui --version` and `wg-tui --help` start and exit cleanly
   without launching the full-screen UI, and `wg-tui doctor` prints its checklist
   and exits with a valid code (0, 1 or 2).
-- A shell lint: `bash -n` syntax checks plus `shellcheck -S warning` on the
-  scripts (`wg-helper` and `install.sh`) - it hard-fails on any warning, because
-  those scripts run with elevated privilege.
-- Negative helper tests prove traversal-style tunnel names are rejected before
+- Shell syntax/lint checks on `install.sh` and helper validation scripts.
+- Rust helper unit tests and negative helper tests prove traversal-style tunnel names are rejected before
   any filesystem access.
 
 ### The tagged release flow
@@ -87,7 +86,7 @@ CI guards quality before anything is tagged. On each change it runs:
 Cutting a release is triggered by pushing a version tag (for example `v1.5.4`).
 At a high level the release job:
 
-1. Runs the CLI smoke checks and helper shell validation.
+1. Runs the CLI smoke checks plus helper and installer validation.
 2. Builds the release artifacts (including the mandatory `.deb` - a missing one
    fails the release).
 3. Generates `SHA256SUMS` over the artifacts (using `nullglob` and verifying the
@@ -100,6 +99,18 @@ Because `wg-tui` and `wireguard-gui` are version-aligned, a release of one is cu
 in step with the other so the two stay feature-identical.
 
 ## Version history
+
+### Next - Rust helper, kill switch, aarch64 tarballs, and packaging templates
+
+Highlights:
+
+- The privileged runtime helper is now Rust (`src/bin/wg-helper.rs`) with the
+  same fixed verb contract.
+- Advanced mode now has `K` to toggle a tunnel-scoped kill switch for active
+  tunnels using helper-managed iptables/ip6tables rules.
+- Release automation now builds portable x86_64 and aarch64 Linux tarballs.
+- Alpine APKBUILD and Void template packaging starts are included for
+  maintainers while keeping the TUI free of GUI dependencies.
 
 Newest first.
 

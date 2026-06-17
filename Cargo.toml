@@ -6,10 +6,15 @@ description = "A native Linux terminal UI for managing plain WireGuard tunnels w
 license = "MIT"
 repository = "https://github.com/JamilleJung/wireguard-tui"
 readme = "README.md"
+default-run = "wg-tui"
 
 [[bin]]
 name = "wg-tui"
 path = "src/main.rs"
+
+[[bin]]
+name = "wg-helper"
+path = "src/bin/wg-helper.rs"
 
 [dependencies]
 ratatui = "0.29"
@@ -37,7 +42,7 @@ extended-description = "A native Linux terminal UI for managing plain WireGuard 
 depends = "$auto, wireguard-tools, polkit-1 | policykit-1"
 assets = [
     ["target/release/wg-tui", "usr/bin/", "755"],
-    ["packaging/wg-helper", "usr/lib/wireguard-tui/wg-helper", "755"],
+    ["target/release/wg-helper", "usr/lib/wireguard-tui/wg-helper", "755"],
     ["packaging/49-wireguard-tui.rules", "etc/polkit-1/rules.d/", "644"],
     ["README.md", "usr/share/doc/wireguard-tui/README.md", "644"],
 ]

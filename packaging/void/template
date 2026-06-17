@@ -1,0 +1,20 @@
+# Template file for 'wireguard-tui'
+pkgname=wireguard-tui
+version=1.5.4
+revision=1
+build_style=cargo
+hostmakedepends="pkg-config"
+depends="wireguard-tools polkit"
+short_desc="Native terminal UI for plain WireGuard tunnels"
+maintainer="downstream packager <packager@example.invalid>"
+license="MIT"
+homepage="https://github.com/JamilleJung/wireguard-tui"
+distfiles="https://github.com/JamilleJung/wireguard-tui/archive/refs/tags/v${version}.tar.gz"
+checksum=@CHECKSUM@
+
+do_install() {
+	vbin target/release/wg-tui
+	vinstall target/release/wg-helper 755 usr/lib/wireguard-tui wg-helper
+	vinstall packaging/49-wireguard-tui.rules 644 usr/share/polkit-1/rules.d
+	vlicense LICENSE
+}

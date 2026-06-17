@@ -6,7 +6,8 @@ A native terminal UI for managing WireGuard tunnels on Linux.
 
 Built with Rust + ratatui as a single native binary. No GUI stack. No Electron.
 No WebView. No NetworkManager layer. It works over SSH on minimal servers and
-manages plain `/etc/wireguard/*.conf` tunnels through `wg` and `wg-quick`.
+manages plain `/etc/wireguard/*.conf` tunnels through `wg` and `wg-quick`, with
+root operations kept behind a small auditable Rust helper.
 
 <img src="docs/screenshot.svg" alt="wg-tui - WireGuard terminal UI" width="900">
 
@@ -94,6 +95,8 @@ systems where a desktop stack is the wrong dependency.
 - Applies compatible saved edits to a running tunnel with `wg syncconf`.
 - Saves live running state back to disk with `wg-quick save`.
 - Toggles start-on-boot with systemd `wg-quick@<name>` when systemd is present.
+- Toggles a helper-managed kill switch for active tunnels using Linux firewall
+  primitives.
 - Provides Easy mode for everyday actions and Advanced mode for raw operations.
 - Remembers the Easy/Advanced preference under the user config directory.
 
@@ -124,6 +127,7 @@ The release page normally includes:
 
 - `wireguard-tui_*_amd64.deb`
 - `wireguard-tui-*-x86_64-linux.tar.gz`
+- `wireguard-tui-*-aarch64-linux.tar.gz`
 - `SHA256SUMS`
 - `SHA256SUMS.minisig` when signing is configured
 - `minisign.pub`
@@ -238,6 +242,7 @@ Advanced mode also enables:
 | `n` | Create a new tunnel from a generated template |
 | `g` | Generate a keypair and preshared key |
 | `c` | Show the running config with `wg showconf` |
+| `K` | Toggle the helper-managed kill switch for an active tunnel |
 | `p` | Save live state with `wg-quick save` |
 | `R` | Rename the selected tunnel |
 | `x` | Export all tunnels to `~/wireguard-tunnels.zip` |
@@ -253,8 +258,8 @@ Import browser:
 | `Esc` | Cancel import |
 
 Easy mode shows everyday actions. Advanced mode adds raw editing, new tunnel,
-key generation, running config, save-live, rename, and export. The mode choice
-is remembered.
+key generation, running config, kill switch, save-live, rename, and export. The
+mode choice is remembered.
 
 ## Doctor and setup
 
@@ -300,7 +305,8 @@ Designed with a small auditable privilege boundary:
 The helper exposes fixed verbs only:
 
 `list`, `active`, `read`, `dump`, `up`, `down`, `save`, `rename`, `delete`,
-`enable`, `disable`, `is-enabled`, `sync`, `showconf`, `persist`, and `log`.
+`enable`, `disable`, `is-enabled`, `sync`, `showconf`, `persist`, `log`,
+`killswitch-status`, `killswitch-enable`, and `killswitch-disable`.
 
 Helper hardening:
 
@@ -318,6 +324,8 @@ Helper hardening:
   and rename into place.
 - Overwrite, rename, and delete create timestamped backups first.
 - Mutating actions are logged without private keys.
+- Kill switch verbs require an active `wg-quick` tunnel with a WireGuard fwmark,
+  use iptables/ip6tables when present, and do not install a daemon.
 
 Important WireGuard reality: `wg-quick` supports `PreUp`, `PostUp`, `PreDown`,
 and `PostDown`. Those hooks run as root when a tunnel is activated. The TUI
@@ -338,11 +346,11 @@ This is MIT open source. Fork it to hack on your own ideas.
 | `src/main.rs` | App entrypoint, event loop, key handling, rendering |
 | `src/backend.rs` | Helper client, WireGuard orchestration, parsing, validation |
 | `src/doctor.rs` | Read-only checks and setup hints |
-| `packaging/wg-helper` | Privileged helper and fixed verb surface |
+| `src/bin/wg-helper.rs` | Privileged Rust helper and fixed verb surface |
 | `install.sh` | Distro-aware source installer |
 | `tests/helper-validation.sh` | Shell tests for helper name validation |
 | `docs/` | Tutorial, distro guide, release notes |
-| `packaging/` | Polkit, AUR/RPM metadata, optional desktop assets |
+| `packaging/` | Polkit, AUR/RPM/APK/Void metadata, optional desktop assets |
 | `.github/workflows/` | CI and release automation |
 
 ### Build and test
@@ -353,9 +361,10 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo build --release
 bash -n install.sh
-bash -n packaging/wg-helper
-shellcheck -S warning install.sh packaging/wg-helper tests/helper-validation.sh
-bash tests/helper-validation.sh
+bash -n tests/installer-sanity.sh
+shellcheck -S warning install.sh tests/helper-validation.sh tests/installer-sanity.sh
+bash tests/helper-validation.sh target/release/wg-helper
+bash tests/installer-sanity.sh
 target/release/wg-tui --help
 target/release/wg-tui --version
 target/release/wg-tui doctor
@@ -371,6 +380,7 @@ During development, the binary can use the in-tree helper. You can also point it
 at a helper explicitly:
 
 ```sh
+cargo build --bin wg-helper
 WG_HELPER=/absolute/path/to/wg-helper cargo run
 ```
 
@@ -393,6 +403,8 @@ not log private keys.
   systemd-resolved if your configs use `DNS =`.
 - The helper prompts every time: run `./install.sh` or `./install.sh --polkit`
   so the installed helper path is authorized.
+- Kill switch fails: the tunnel must be active and the system needs iptables or
+  ip6tables available.
 - Start-on-boot is unavailable: the system does not provide `systemctl`.
 - The Log tab is empty: `journalctl` is missing or the system is not using
   journald.
@@ -406,22 +418,21 @@ not log private keys.
 ## Known limitations
 
 - Start-on-boot is systemd-only.
-- Prebuilt release artifacts are currently x86_64.
+- The release workflow builds x86_64 and aarch64 tarballs; `.deb` coverage
+  remains x86_64-focused.
 - Editing uses an external editor by design.
 - Terminal QR codes can be large.
 - OSC 52 copy depends on terminal support.
 - The project does not bundle WireGuard tools or kernel modules.
-- The helper is still shell-based; a Rust helper is a realistic future hardening
-  step.
+- The kill switch is intentionally helper-managed firewall state, not a daemon
+  or persistent firewall manager.
 
 ## Roadmap
 
-- Rust helper with the same verb contract.
-- Better advanced peer editing.
-- Kill-switch support that stays close to Linux firewall primitives.
-- More release architectures, especially aarch64, when CI/release packaging is
-  ready.
-- More helper, installer, and doctor tests.
+- nftables backend for kill switch on systems that do not ship iptables.
+- Better advanced peer editing without turning the TUI into a heavy form app.
+- More helper, installer, and doctor tests, including firewall rule dry-run
+  coverage.
 - More distro packages where maintainers want them.
 
 ## License

@@ -15,15 +15,19 @@ Before opening a PR, please run:
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
 cargo test
+cargo build --release
+shellcheck -S warning install.sh tests/helper-validation.sh tests/installer-sanity.sh
+bash tests/helper-validation.sh target/release/wg-helper
+bash tests/installer-sanity.sh
 ```
 
 Both are enforced in CI.
 
 ## Guidelines
 
-- Keep the privileged helper (`packaging/wg-helper`) as small and auditable as
+- Keep the privileged helper (`src/bin/wg-helper.rs`) as small and auditable as
   possible. New privileged operations should be a new explicit verb with strict
-  input validation - never pass caller-controlled paths.
+  input validation - never pass caller-controlled paths or executable names.
 - Prefer pure-Rust dependencies; a key goal of this project is that it builds and
   runs with **no GUI/C library dependencies** and works over SSH.
 - Keep the UI keyboard-driven and discoverable (update the `?` help and the

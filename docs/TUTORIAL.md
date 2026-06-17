@@ -77,9 +77,9 @@ server installs minimal. If you want a local application-menu entry, use:
 
 ### The no-sudo / passwordless explanation
 
-All root-level work in `wg-tui` goes through one tiny, auditable helper script
+All root-level work in `wg-tui` goes through one tiny, auditable Rust helper
 (`wg-helper`). So that you are never nagged for a password during normal use, the
-installer grants passwordless access to *just that one script*:
+installer grants passwordless access to *just that one helper*:
 
 - By default it writes a **sudoers drop-in** scoped to the helper.
 - If your system can't use `sudo` at all (for example a fresh Debian server where
@@ -175,8 +175,8 @@ Easy mode shows only the everyday actions:
 - Show QR
 
 Press **`m`** to switch to **Advanced mode**, which adds the expert actions: edit,
-new tunnel, generate keys, show running config, save live state, rename, and
-export. Your choice is remembered (saved under
+new tunnel, generate keys, show running config, kill switch, save live state,
+rename, and export. Your choice is remembered (saved under
 `~/.config/wireguard-tui/mode`), so the next launch starts in the mode you left.
 
 If you press an advanced key while in Easy mode, the footer reminds you:
@@ -357,6 +357,7 @@ in-app help.
 | `d` | Delete the selected tunnel |
 | `R` | Rename the selected tunnel |
 | `s` | Toggle start-on-boot |
+| `K` | Toggle the helper-managed kill switch for an active tunnel |
 | `p` | Save a running tunnel's live state to its `.conf` |
 | `Q` | Show the tunnel as a QR code |
 | `y` | Copy the interface public key to the clipboard (OSC 52) |
@@ -374,7 +375,7 @@ imports all marked files; `Esc` cancels.
 
 **Easy mode** shows only the everyday actions (connect/disconnect, import,
 start-on-boot, remove, Show QR). **Advanced mode** (press `m`) adds edit, new,
-generate keys, running config, save-live, rename, and export.
+generate keys, running config, kill switch, save-live, rename, and export.
 
 ---
 

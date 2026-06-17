@@ -308,6 +308,7 @@ fn is_advanced_key(code: KeyCode) -> bool {
             | KeyCode::Char('g') // generate keys
             | KeyCode::Char('c') // show running config
             | KeyCode::Char('p') // save live state
+            | KeyCode::Char('K') // helper-managed kill switch
             | KeyCode::Char('R') // rename
             | KeyCode::Char('x') // export all
     )
@@ -814,6 +815,7 @@ fn handle_key(
             }
         }
         KeyCode::Char('s') => toggle_autostart(app, terminal)?,
+        KeyCode::Char('K') => toggle_killswitch(app, terminal)?,
         KeyCode::Char('i') => open_import_browser(app),
         KeyCode::Char('g') => generate_show(app),
         KeyCode::Char('c') => show_running(app),
@@ -886,6 +888,25 @@ fn toggle_autostart(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> i
             if want { "enabled" } else { "disabled" }
         )),
         Err(e) => app.flash(format!("Failed: {e}")),
+    }
+    app.load_detail();
+    Ok(())
+}
+
+fn toggle_killswitch(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
+    let Some(d) = &app.detail else { return Ok(()) };
+    if !d.active {
+        app.flash("Kill switch needs an active tunnel");
+        return Ok(());
+    }
+    let (name, want) = (d.name.clone(), !d.killswitch);
+    flash_now(app, terminal, format!("Updating kill switch for {name}..."))?;
+    match backend::set_killswitch(&name, want) {
+        Ok(()) => app.flash(format!(
+            "Kill switch {} for {name}",
+            if want { "enabled" } else { "disabled" }
+        )),
+        Err(e) => app.mode = Mode::Message(format!("Kill switch failed:\n\n{e}")),
     }
     app.load_detail();
     Ok(())
@@ -1337,7 +1358,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     let hint = if app.easy {
         " Up/Dn move  Enter/a connect/disconnect  i import  s on-boot  d remove  Q qr  y copy-key  Tab log  m advanced  ? help  q quit"
     } else {
-        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  p save-live  Q qr  x export  Tab log  m easy  ? help  q quit";
+        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  K kill  p save-live  Q qr  x export  Tab log  m easy  ? help  q quit";
         let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  y copy-key  d del  Q qr  Tab log  m easy  ? help  q quit";
         if full.chars().count() as u16 <= chunks[2].width {
             full
@@ -1528,6 +1549,7 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
         lines.push(kv("Addresses", &dash(&d.addresses)));
         lines.push(kv("DNS", &dash(&d.dns)));
         lines.push(kv("Start on boot", if d.autostart { "Yes" } else { "No" }));
+        lines.push(kv("Kill switch", if d.killswitch { "Yes" } else { "No" }));
 
         for (i, p) in d.peers.iter().enumerate() {
             lines.push(Line::from(""));
@@ -1654,7 +1676,7 @@ fn render_help(f: &mut Frame) {
 
   Advanced mode also adds:
   e edit in $EDITOR   n new tunnel   g generate keys   c show running config
-  p save live state   R rename   x export all tunnels
+  K kill switch       p save live state   R rename   x export all tunnels
 
   ?              This help    q / Esc   Quit";
     let area = popup_area(f.area(), 70, 23);
