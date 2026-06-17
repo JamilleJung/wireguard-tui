@@ -243,7 +243,7 @@ ensure_resolvconf() {
 
 uninstall() {
     say "Removing wireguard-tui"
-    as_root rm -f "$BIN" "$HELPER" "$DESKTOP" "$ICON" "$SUDOERS" "$POLKIT_RULE"
+    as_root rm -f "$BIN" "$PREFIX/bin/wireguard-tui" "$HELPER" "$DESKTOP" "$ICON" "$SUDOERS" "$POLKIT_RULE"
     as_root rmdir "$LIBDIR" 2>/dev/null || true
     ok "Uninstalled. (Your /etc/wireguard configs were left untouched.)"
     exit 0
@@ -266,6 +266,7 @@ build_app
 say "Installing into $PREFIX"
 as_root install -d "$LIBDIR" "$PREFIX/bin"
 as_root install -m755 "$HERE/target/release/wg-tui" "$BIN"
+as_root ln -sf "$BIN" "$PREFIX/bin/wireguard-tui"
 as_root install -m755 "$HERE/target/release/wg-helper" "$HELPER"
 if [ "$INSTALL_DESKTOP" -eq 1 ]; then
     as_root install -d "$PREFIX/share/applications" "$ICON_DIR"

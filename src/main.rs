@@ -4,6 +4,7 @@
 
 mod backend;
 mod clipboard;
+mod ui;
 mod config;
 mod create;
 mod doctor;

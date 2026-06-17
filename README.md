@@ -96,8 +96,8 @@ systems where a desktop stack is the wrong dependency.
 - Applies compatible saved edits to a running tunnel with `wg syncconf`.
 - Saves live running state back to disk with `wg-quick save`.
 - Toggles start-on-boot with systemd `wg-quick@<name>` when systemd is present.
-- Toggles a helper-managed kill switch for active tunnels using Linux firewall
-  primitives.
+- Toggles a helper-managed kill switch for active tunnels using nftables
+  (preferred) or iptables/ip6tables.
 - Provides Easy mode for everyday actions and Advanced mode for raw operations.
 - Remembers the Easy/Advanced preference under the user config directory.
 
@@ -207,15 +207,17 @@ Launch:
 
 ```sh
 wg-tui
+# or the longer name:
+wireguard-tui
 ```
 
-CLI helpers:
+CLI helpers (both names work):
 
 ```sh
-wg-tui --version
-wg-tui --help
-wg-tui doctor
-wg-tui setup
+wg-tui --version      # or: wireguard-tui --version
+wg-tui --help         # or: wireguard-tui --help
+wg-tui doctor         # or: wireguard-tui doctor
+wg-tui setup          # or: wireguard-tui setup
 ```
 
 Keys in the main UI:
@@ -409,8 +411,7 @@ not log private keys.
   systemd-resolved if your configs use `DNS =`.
 - The helper prompts every time: run `./install.sh` or `./install.sh --polkit`
   so the installed helper path is authorized.
-- Kill switch fails: the tunnel must be active and the system needs iptables or
-  ip6tables available.
+- Kill switch fails: the tunnel must be active and the system needs nftables, iptables, or ip6tables available.
 - Start-on-boot is unavailable: the system does not provide `systemctl`.
 - The Log tab is empty: `journalctl` is missing or the system is not using
   journald.
@@ -435,11 +436,11 @@ not log private keys.
 
 ## Roadmap
 
-- nftables backend for kill switch on systems that do not ship iptables.
 - Better advanced peer editing without turning the TUI into a heavy form app.
-- More helper, installer, and doctor tests, including firewall rule dry-run
-  coverage.
-- More distro packages where maintainers want them.
+- SSH-auto-detect for kill switch (auto-allowlist when connected via SSH).
+- More helper, installer, and doctor tests, including firewall rule dry-run coverage.
+- More distro packages where maintainers want them (COPR, official Alpine/Void).
+- Terminal QR cell-aspect-ratio auto-detection for better rendering.
 
 ## License
 

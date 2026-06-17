@@ -3,8 +3,8 @@
 This page is the friendly tour of wireguard-tui releases: where to download
 them, how to be sure a download is genuine, how each build is produced, and what
 changed in every version. The terminal app `wg-tui` and its desktop sibling
-`wireguard-gui` are developed together and share a version number, so a `1.5.5`
-of one matches `1.5.5` of the other feature-for-feature.
+`wireguard-gui` are developed together and share a version number, so a `1.6.0`
+of one matches `1.6.0` of the other feature-for-feature.
 
 ## Where to get releases
 
@@ -24,7 +24,7 @@ cd wireguard-tui
 
 The installer detects your package manager (apt, dnf/yum, pacman, zypper, apk,
 xbps, eopkg), installs `wireguard-tools` plus a C linker, makes sure a Rust
-toolchain is present (via rustup if needed), builds the `wg-tui` binary as your
+toolchain is present (via rustup if needed), builds the `wg-tui` binary (linked as `wireguard-tui`) as your
 own user, and installs the binary and privileged helper. By default it does not
 install a desktop launcher; `./install.sh --desktop` adds one if you want it.
 By default it sets up a passwordless `sudoers` drop-in scoped to the helper;
@@ -74,7 +74,7 @@ CI guards quality before anything is tagged. On each change it runs:
 - `cargo test` - the unit tests for config parsing, validation and tunnel-name
   sanitisation run on every push and pull request.
 - `cargo build --release` - the project must compile in release mode.
-- A smoke test: `wg-tui --version` and `wg-tui --help` start and exit cleanly
+- A smoke test: `wg-tui --version` (or `wireguard-tui --version`) and `wg-tui --help` start and exit cleanly
   without launching the full-screen UI, and `wg-tui doctor` prints its checklist
   and exits with a valid code (0, 1 or 2).
 - Shell syntax/lint checks on `install.sh` and helper validation scripts.
@@ -83,7 +83,7 @@ CI guards quality before anything is tagged. On each change it runs:
 
 ### The tagged release flow
 
-Cutting a release is triggered by pushing a version tag (for example `v1.5.5`).
+Cutting a release is triggered by pushing a version tag (for example `v1.6.0`).
 At a high level the release job:
 
 1. Runs the CLI smoke checks plus helper and installer validation.
@@ -100,7 +100,16 @@ in step with the other so the two stay feature-identical.
 
 ## Version history
 
-### 1.5.5 - Rust helper, kill switch, aarch64 tarballs, and packaging templates
+### 1.6.0 (2026-06-17)
+
+- **nftables kill switch backend** — preferred when `nft` is available (`inet filter` table covers both IPv4+IPv6); iptables/ip6tables fallback.
+- **SSH safety warning** — the helper warns (stderr) before enabling a kill switch over an SSH connection.
+- **Copy UX** — click the value text or trailing ⧉ icon to copy; no more large "Copy" button.
+- **Log tab** — `TextEdit` (read-only) for native text selection and scrolling; journal limits raised to 1000 lines.
+- **Speed display** — uses ↓ ↑ icons instead of "down"/"up"; throughput calculation is more robust (no longer gated on active flag).
+- **More tests** — kill switch rule generation tests: nftables handle extraction and iptables rule numbering.
+
+## 1.5.5 - Rust helper, kill switch, aarch64 tarballs, and packaging templates
 
 Highlights:
 

@@ -4,13 +4,13 @@ A complete, beginner-friendly walkthrough of `wg-tui`, the terminal UI for
 managing WireGuard tunnels on Linux. No prior WireGuard knowledge is assumed.
 Every command here is copy-pasteable.
 
-This is the current release: **1.5.5**.
+This is the current release: **1.6.0**.
 
 ---
 
 ## 1. What this is and who it's for
 
-`wg-tui` is a terminal program (a "TUI" - text user interface) that lists your
+`wg-tui` (also available as `wireguard-tui`) is a terminal program (a "TUI" - text user interface) that lists your
 WireGuard tunnels, shows live status, and lets you connect, edit, import, and
 share them - all from the keyboard, with no graphical desktop required. It is a
 single native Rust binary with no GUI or C library dependencies, so it works the
@@ -50,6 +50,7 @@ Then launch it:
 
 ```sh
 wg-tui
+# or: wireguard-tui
 ```
 
 ### What the installer does
@@ -60,7 +61,7 @@ xbps, or eopkg - and then:
 - installs `wireguard-tools` (the `wg` / `wg-quick` commands) and a C linker,
 - ensures a Rust toolchain (via `rustup` if you don't already have one),
 - builds the project **as your normal user** (never as root), and
-- installs the `wg-tui` binary and privileged helper,
+- installs the `wg-tui` binary (linked as `wireguard-tui` too) and privileged helper,
 - sets up passwordless authorization so day-to-day use never prompts you.
 
 By default the installer does not install a desktop launcher or icon, keeping
@@ -122,14 +123,14 @@ cargo test                   # unit tests (parsing, validation, names)
 
 ## 3. First run
 
-`wg-tui` has two read-only / guided commands that check and fix your system. They
+`wg-tui` (or `wireguard-tui`) has two read-only / guided commands that check and fix your system. They
 do **not** launch the full-screen UI - they print and exit, which makes them
 useful to run first over SSH.
 
 ### Check your system: wg-tui doctor
 
 ```sh
-wg-tui doctor
+wg-tui doctor     # or: wireguard-tui doctor
 ```
 
 `doctor` is read-only and needs no root. It prints a plain-language checklist:
@@ -146,7 +147,7 @@ so you (or a script) can tell at a glance how healthy the box is:
 ### Fix what's missing: wg-tui setup
 
 ```sh
-wg-tui setup
+wg-tui setup      # or: wireguard-tui setup
 ```
 
 `setup` is a guided, confirmation-based fix. It offers to install
@@ -206,12 +207,12 @@ Press **`Esc`** to cancel the browser.
 ### (b) Import from a QR-code image
 
 If you have a screenshot or photo saved as a PNG or JPG of a WireGuard QR code,
-`wg-tui` can decode it:
+`wg-tui` (or `wireguard-tui`) can decode it:
 
 1. Press **`i`** to open the same import browser.
 2. Navigate to the image file (`.png` / `.jpg`) and press **`Enter`**.
 
-`wg-tui` reads the QR out of the image and imports it as a normal tunnel. (To go
+`wg-tui` (or `wireguard-tui`) reads the QR out of the image and imports it as a normal tunnel. (To go
 the other way - put a tunnel onto your phone - see section 6.)
 
 ### (c) Create a new tunnel from scratch and generate keys
@@ -223,7 +224,7 @@ setup workflow.
    15 characters); press **`Enter`** to confirm or **`Esc`** to cancel.
 2. Choose a preset: **`i`** for Interface only, **`f`** / **`Enter`** for a
    full-tunnel client, or **`s`** for a split-tunnel client.
-3. `wg-tui` creates a template with a freshly generated private key and opens it
+3. `wg-tui` (or `wireguard-tui`) creates a template with a freshly generated private key and opens it
    in your editor (`$VISUAL`/`$EDITOR`, falling back to `nano`). Fill in the rest
    (address, peer public key, endpoint, allowed IPs), then save and quit the
    editor.
@@ -258,7 +259,7 @@ from `wg show`, refreshed about every 1.5 seconds:
 
 Quick reference for what a healthy client tunnel looks like: a recent **latest
 handshake** (seconds/minutes ago, not hours), transfer counters that climb as you
-use the network, and a non-zero down/up speed when traffic is flowing.
+use the network, and a non-zero ↓/↑ speed when traffic is flowing.
 
 Press **`y`** to copy the interface public key to your clipboard (via the OSC 52
 terminal escape, so it works locally and over SSH in supporting terminals) - handy
@@ -279,7 +280,7 @@ To move a tunnel to the WireGuard mobile app, render it as a scannable QR code:
 > who photographs your screen gets full access to that tunnel. Only show a QR when
 > it is safe for someone to see your screen.
 
-If the terminal is too small, `wg-tui` will tell you the QR is bigger than the
+If the terminal is too small, `wg-tui` (or `wireguard-tui`) will tell you the QR is bigger than the
 window rather than drawing an unscannable, cropped code. Enlarge the window (or
 zoom out) and press **`Q`** again.
 
@@ -309,7 +310,7 @@ This needs **Advanced mode** (press **`m`**).
    (`$VISUAL`/`$EDITOR`, falling back to `nano`).
 2. Make your changes, save, and quit.
 
-`wg-tui` **validates the config before saving** - it checks keys, addresses,
+`wg-tui` (or `wireguard-tui`) **validates the config before saving** - it checks keys, addresses,
 endpoint, and peers, so a typo is caught up front instead of only when
 `wg-quick up` fails later. The helper also performs a second basic config-shape
 check before replacing files. (A bracketed IPv6 endpoint like
@@ -361,7 +362,7 @@ in-app help.
 | `d` | Delete the selected tunnel |
 | `R` | Rename the selected tunnel |
 | `s` | Toggle start-on-boot |
-| `K` | Toggle the helper-managed kill switch for an active tunnel |
+| `K` | Toggle the helper-managed kill switch for an active tunnel (nftables preferred; iptables fallback) |
 | `p` | Save a running tunnel's live state to its `.conf` |
 | `Q` | Show the tunnel as a QR code |
 | `y` | Copy the interface public key to the clipboard (OSC 52) |
@@ -396,7 +397,7 @@ binary, so activation fails like this:
 /usr/bin/wg-quick: line 32: resolvconf: command not found
 ```
 
-`wg-tui` rewrites this into a friendly message telling you to install a provider.
+`wg-tui` (or `wireguard-tui`) rewrites this into a friendly message telling you to install a provider.
 Fix it once:
 
 ```sh
@@ -406,8 +407,8 @@ su root -c 'apt install openresolv'
 ```
 
 If **systemd-resolved** is already active (the default on Ubuntu and Fedora), this
-is already covered and you need nothing. `wg-tui doctor` shows a
-"DNS for tunnels (resolvconf)" line, and `wg-tui setup` offers to install the
+is already covered and you need nothing. `wg-tui doctor` (or `wireguard-tui doctor`) shows a
+"DNS for tunnels (resolvconf)" line, and `wg-tui setup` (or `wireguard-tui setup`) offers to install the
 provider for you.
 
 ### "<user> is not in the sudoers file"
