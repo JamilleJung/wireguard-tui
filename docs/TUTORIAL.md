@@ -4,7 +4,7 @@ A complete, beginner-friendly walkthrough of `wg-tui`, the terminal UI for
 managing WireGuard tunnels on Linux. No prior WireGuard knowledge is assumed.
 Every command here is copy-pasteable.
 
-This is the current release: **1.5.4**.
+This is the current release: **1.5.5**.
 
 ---
 
@@ -170,13 +170,14 @@ Easy mode shows only the everyday actions:
 
 - connect / disconnect
 - import
+- create a new tunnel
 - start-on-boot
 - remove
 - Show QR
 
 Press **`m`** to switch to **Advanced mode**, which adds the expert actions: edit,
-new tunnel, generate keys, show running config, kill switch, save live state,
-rename, and export. Your choice is remembered (saved under
+generate keys, show running config, kill switch, save live state, rename, and
+export. Your choice is remembered (saved under
 `~/.config/wireguard-tui/mode`), so the next launch starts in the mode you left.
 
 If you press an advanced key while in Easy mode, the footer reminds you:
@@ -215,7 +216,8 @@ the other way - put a tunnel onto your phone - see section 6.)
 
 ### (c) Create a new tunnel from scratch and generate keys
 
-This needs **Advanced mode** (press **`m`** first if you are in Easy mode).
+This is available in **Easy mode** because creating a first tunnel is a normal
+setup workflow.
 
 1. Press **`n`** to create a new tunnel. You will be prompted for a name (up to
    15 characters); press **`Enter`** to confirm or **`Esc`** to cancel.
@@ -373,8 +375,8 @@ opens a directory or imports the highlighted file; `Backspace` (or `Left`/`h`)
 goes up a level; **`Space`** marks a file for bulk import and **`Enter`** then
 imports all marked files; `Esc` cancels.
 
-**Easy mode** shows only the everyday actions (connect/disconnect, import,
-start-on-boot, remove, Show QR). **Advanced mode** (press `m`) adds edit, new,
+**Easy mode** shows only the everyday actions (connect/disconnect, new tunnel,
+import, start-on-boot, remove, Show QR). **Advanced mode** (press `m`) adds edit,
 generate keys, running config, kill switch, save-live, rename, and export.
 
 ---

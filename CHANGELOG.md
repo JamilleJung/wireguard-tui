@@ -6,12 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-06-17
+
 ### Added
 - Rust `wg-helper` binary with the same fixed verb contract as the previous
   helper.
 - Advanced-mode `K` kill switch toggle backed by helper-managed
   iptables/ip6tables rules for active tunnels.
 - aarch64 Linux release tarballs and Alpine/Void packaging templates.
+- Easy Mode can create a tunnel from scratch with `n`.
 
 ### Changed
 - Reframed project docs and package metadata around the small native Linux
@@ -20,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The first-party TUI installer and packages no longer install desktop
   integration by default. `./install.sh --desktop` remains available for users
   who want a launcher.
+- OSC52 copy now normalizes single-field payloads before writing the escape
+  sequence.
 
 ### Security
 - The helper now performs a second, privileged-boundary config shape check before
@@ -30,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI now runs negative helper-name validation tests.
 - CI now runs installer sanity checks for helper paths, sudoers validation, and
   non-root build handoff.
+
+### Fixed
+- Copying public keys no longer carries accidental leading/trailing whitespace
+  or display newlines.
 
 ## [1.5.4] - 2026-06-17
 

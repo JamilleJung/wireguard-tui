@@ -81,7 +81,7 @@ systems where a desktop stack is the wrong dependency.
 - Removes temp editor files after editing.
 - Validates before save.
 - Saves through the helper with backups and atomic replacement.
-- Creates new tunnels from a generated template.
+- Creates new tunnels from a generated template in Easy Mode.
 - Generates keypairs and preshared keys.
 - Imports `.conf` files.
 - Imports QR-code images.
@@ -257,9 +257,9 @@ Import browser:
 | `Left` / `h` / `Backspace` | Go up one directory |
 | `Esc` | Cancel import |
 
-Easy mode shows everyday actions. Advanced mode adds raw editing, new tunnel,
-key generation, running config, kill switch, save-live, rename, and export. The
-mode choice is remembered.
+Easy mode shows everyday actions, including creating a tunnel. Advanced mode
+adds raw editing, key generation, running config, kill switch, save-live,
+rename, and export. The mode choice is remembered.
 
 ## Doctor and setup
 

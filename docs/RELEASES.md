@@ -3,8 +3,8 @@
 This page is the friendly tour of wireguard-tui releases: where to download
 them, how to be sure a download is genuine, how each build is produced, and what
 changed in every version. The terminal app `wg-tui` and its desktop sibling
-`wireguard-gui` are developed together and share a version number, so a `1.5.4`
-of one matches `1.5.4` of the other feature-for-feature.
+`wireguard-gui` are developed together and share a version number, so a `1.5.5`
+of one matches `1.5.5` of the other feature-for-feature.
 
 ## Where to get releases
 
@@ -83,7 +83,7 @@ CI guards quality before anything is tagged. On each change it runs:
 
 ### The tagged release flow
 
-Cutting a release is triggered by pushing a version tag (for example `v1.5.4`).
+Cutting a release is triggered by pushing a version tag (for example `v1.5.5`).
 At a high level the release job:
 
 1. Runs the CLI smoke checks plus helper and installer validation.
@@ -100,7 +100,7 @@ in step with the other so the two stay feature-identical.
 
 ## Version history
 
-### Next - Rust helper, kill switch, aarch64 tarballs, and packaging templates
+### 1.5.5 - Rust helper, kill switch, aarch64 tarballs, and packaging templates
 
 Highlights:
 
@@ -108,6 +108,9 @@ Highlights:
   same fixed verb contract.
 - Advanced mode now has `K` to toggle a tunnel-scoped kill switch for active
   tunnels using helper-managed iptables/ip6tables rules.
+- Easy Mode can now create a tunnel from scratch with `n`.
+- OSC52 copy now normalizes single-field payloads before emitting the terminal
+  clipboard escape.
 - Release automation now builds portable x86_64 and aarch64 Linux tarballs.
 - Alpine APKBUILD and Void template packaging starts are included for
   maintainers while keeping the TUI free of GUI dependencies.

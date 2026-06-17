@@ -168,12 +168,12 @@ impl App {
             }
         }
         // Only apply detail that still matches the current selection.
-        if let Some((name, d)) = snap.detail {
-            if Some(&name) == self.selected_name().as_ref() {
-                let (rx, tx) = (d.rx_bytes, d.tx_bytes);
-                self.detail = Some(d);
-                self.update_speed(&name, rx, tx);
-            }
+        if let Some((name, d)) = snap.detail
+            && Some(&name) == self.selected_name().as_ref()
+        {
+            let (rx, tx) = (d.rx_bytes, d.tx_bytes);
+            self.detail = Some(d);
+            self.update_speed(&name, rx, tx);
         }
         if let Some(log) = snap.log {
             self.log = log;
@@ -263,11 +263,11 @@ impl App {
 
     /// Clear the footer status once it has been shown for `STATUS_TTL`.
     fn expire_status(&mut self) {
-        if let Some(at) = self.status_at {
-            if at.elapsed() >= STATUS_TTL {
-                self.status.clear();
-                self.status_at = None;
-            }
+        if let Some(at) = self.status_at
+            && at.elapsed() >= STATUS_TTL
+        {
+            self.status.clear();
+            self.status_at = None;
         }
     }
 }
@@ -304,7 +304,6 @@ fn is_advanced_key(code: KeyCode) -> bool {
     matches!(
         code,
         KeyCode::Char('e') // edit raw config
-            | KeyCode::Char('n') // new from scratch
             | KeyCode::Char('g') // generate keys
             | KeyCode::Char('c') // show running config
             | KeyCode::Char('p') // save live state
@@ -344,10 +343,24 @@ fn base64(data: &[u8]) -> String {
 /// a no-op elsewhere. Doesn't draw, so it won't disturb the ratatui frame.
 fn osc52_copy(text: &str) {
     use std::io::Write as _;
+    let text = normalize_copy_value(text);
+    if text.is_empty() {
+        return;
+    }
     let seq = format!("\x1b]52;c;{}\x07", base64(text.as_bytes()));
     let mut out = std::io::stdout();
     let _ = out.write_all(seq.as_bytes());
     let _ = out.flush();
+}
+
+/// Normalize single-field copy payloads. Raw configs/logs are not copied with
+/// this helper because their newlines are meaningful.
+fn normalize_copy_value(text: &str) -> String {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Set a status and repaint immediately - so slow privileged calls (which block
@@ -369,10 +382,10 @@ fn run_doctor() -> i32 {
     println!("wg-tui doctor\n");
     for c in &report.checks {
         println!("  [{:<7}] {}: {}", c.status.label(), c.name, c.detail);
-        if !matches!(c.status, doctor::Status::Ok) {
-            if let Some(fix) = &c.fix {
-                println!("            fix: {fix}");
-            }
+        if !matches!(c.status, doctor::Status::Ok)
+            && let Some(fix) = &c.fix
+        {
+            println!("            fix: {fix}");
         }
     }
     println!();
@@ -467,16 +480,16 @@ fn run_setup() -> i32 {
     // the classic minimal-Debian gap (wg-quick aborts with "resolvconf: command
     // not found"). systemd-resolved counts, so this only fires when neither is
     // present. Non-critical: tunnels without a DNS line work regardless.
-    if !doctor::dns_ok() {
-        if let Some(cmd) = doctor::install_resolvconf_command() {
-            println!("Tunnels with a 'DNS =' line need a resolvconf provider (none found here).");
-            offer_root_install(
-                "A resolvconf provider",
-                &cmd,
-                &doctor::install_resolvconf_hint(),
-            );
-            println!();
-        }
+    if !doctor::dns_ok()
+        && let Some(cmd) = doctor::install_resolvconf_command()
+    {
+        println!("Tunnels with a 'DNS =' line need a resolvconf provider (none found here).");
+        offer_root_install(
+            "A resolvconf provider",
+            &cmd,
+            &doctor::install_resolvconf_hint(),
+        );
+        println!();
     }
 
     // Helper install can't be done safely from here - point at the installer.
@@ -549,12 +562,11 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
         }
         let timeout = timeout.max(Duration::from_millis(50));
 
-        if event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    handle_key(&mut app, terminal, key.code, key.modifiers)?;
-                }
-            }
+        if event::poll(timeout)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            handle_key(&mut app, terminal, key.code, key.modifiers)?;
         }
     }
     Ok(())
@@ -563,38 +575,40 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
 /// Background thread: does the blocking `wg`/`sudo` calls so the UI never
 /// freezes, dropping the result into `poll_out` for the UI loop to apply.
 fn spawn_poller(poll_in: Arc<Mutex<PollIn>>, poll_out: Arc<Mutex<Option<Snapshot>>>) {
-    std::thread::spawn(move || loop {
-        let (sel, want_log) = {
-            let pi = poll_in.lock().unwrap();
-            (pi.selected.clone(), pi.want_log)
-        };
-        let snap = match backend::try_list_tunnels() {
-            Ok(tunnels) => {
-                let detail = sel
-                    .as_ref()
-                    .filter(|n| tunnels.iter().any(|t| &t.name == *n))
-                    .map(|n| (n.clone(), backend::get_detail(n)));
-                let log = if want_log {
-                    Some(backend::get_log())
-                } else {
-                    None
-                };
-                Snapshot {
-                    tunnels: Some(tunnels),
-                    detail,
-                    log,
-                    error: None,
+    std::thread::spawn(move || {
+        loop {
+            let (sel, want_log) = {
+                let pi = poll_in.lock().unwrap();
+                (pi.selected.clone(), pi.want_log)
+            };
+            let snap = match backend::try_list_tunnels() {
+                Ok(tunnels) => {
+                    let detail = sel
+                        .as_ref()
+                        .filter(|n| tunnels.iter().any(|t| &t.name == *n))
+                        .map(|n| (n.clone(), backend::get_detail(n)));
+                    let log = if want_log {
+                        Some(backend::get_log())
+                    } else {
+                        None
+                    };
+                    Snapshot {
+                        tunnels: Some(tunnels),
+                        detail,
+                        log,
+                        error: None,
+                    }
                 }
-            }
-            Err(e) => Snapshot {
-                tunnels: None,
-                detail: None,
-                log: None,
-                error: Some(format!("Helper error: {e}")),
-            },
-        };
-        *poll_out.lock().unwrap() = Some(snap);
-        std::thread::sleep(TICK);
+                Err(e) => Snapshot {
+                    tunnels: None,
+                    detail: None,
+                    log: None,
+                    error: Some(format!("Helper error: {e}")),
+                },
+            };
+            *poll_out.lock().unwrap() = Some(snap);
+            std::thread::sleep(TICK);
+        }
     });
 }
 
@@ -701,10 +715,11 @@ fn handle_key(
                 }
                 // Space toggles a file's mark for bulk import (dirs can't be marked).
                 KeyCode::Char(' ') => {
-                    if let Some(e) = entries.get(*sel) {
-                        if !e.is_dir && !marked.remove(&e.path) {
-                            marked.insert(e.path.clone());
-                        }
+                    if let Some(e) = entries.get(*sel)
+                        && !e.is_dir
+                        && !marked.remove(&e.path)
+                    {
+                        marked.insert(e.path.clone());
                     }
                 }
                 KeyCode::Backspace | KeyCode::Left | KeyCode::Char('h') => {
@@ -1134,11 +1149,11 @@ fn import_files(app: &mut App, paths: &[PathBuf]) {
         app.flash(format!("Nothing imported ({skipped} skipped/invalid)"));
     }
     app.reload();
-    if let Some(name) = last {
-        if let Some(i) = app.tunnels.iter().position(|t| t.name == name) {
-            app.state.select(Some(i));
-            app.load_detail();
-        }
+    if let Some(name) = last
+        && let Some(i) = app.tunnels.iter().position(|t| t.name == name)
+    {
+        app.state.select(Some(i));
+        app.load_detail();
     }
 }
 
@@ -1356,7 +1371,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     // actions; Advanced shows everything (with a compact fallback on narrow
     // terminals). Both keep ? help / q quit visible.
     let hint = if app.easy {
-        " Up/Dn move  Enter/a connect/disconnect  i import  s on-boot  d remove  Q qr  y copy-key  Tab log  m advanced  ? help  q quit"
+        " Up/Dn move  Enter/a connect/disconnect  n new  i import  s on-boot  d remove  Q qr  y copy-key  Tab log  m advanced  ? help  q quit"
     } else {
         let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  K kill  p save-live  Q qr  x export  Tab log  m easy  ? help  q quit";
         let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  y copy-key  d del  Q qr  Tab log  m easy  ? help  q quit";
@@ -1576,13 +1591,7 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
         ));
         lines.push(Line::from(""));
         lines.push(Line::from("  i   Import a .conf file or QR image"));
-        if !app.easy {
-            lines.push(Line::from("  n   Create a new tunnel from scratch"));
-        } else {
-            lines.push(Line::from(
-                "  (press  m  for Advanced mode to create one from scratch)",
-            ));
-        }
+        lines.push(Line::from("  n   Create a new tunnel from scratch"));
     }
 
     let p = Paragraph::new(lines)
@@ -1666,6 +1675,7 @@ fn render_help(f: &mut Frame) {
     let help = "\
   Up / k, Dn / j   Move selection (scroll the Log tab)
   Enter / a      Activate or deactivate the selected tunnel
+  n              Create a new tunnel from scratch
   i              Import a tunnel (file browser; Space marks many, Enter imports)
   d              Delete the selected tunnel
   s              Toggle start-on-boot for the selected tunnel
@@ -1675,7 +1685,7 @@ fn render_help(f: &mut Frame) {
   m              Toggle Easy / Advanced mode    r   Refresh now
 
   Advanced mode also adds:
-  e edit in $EDITOR   n new tunnel   g generate keys   c show running config
+  e edit in $EDITOR   g generate keys   c show running config
   K kill switch       p save live state   R rename   x export all tunnels
 
   ?              This help    q / Esc   Quit";
@@ -1738,4 +1748,23 @@ fn qr_lines(text: &str) -> Result<Vec<Line<'static>>, String> {
         y += 2;
     }
     Ok(lines)
+}
+
+#[cfg(test)]
+mod copy_tests {
+    use super::normalize_copy_value;
+
+    #[test]
+    fn copy_value_normalization_trims_accidental_whitespace() {
+        assert_eq!(normalize_copy_value(" abc "), "abc");
+        assert_eq!(normalize_copy_value("\nabc\n"), "abc");
+        assert_eq!(normalize_copy_value("abc\n"), "abc");
+        assert_eq!(normalize_copy_value("  abc\n  "), "abc");
+        assert_eq!(normalize_copy_value("abc\r\n"), "abc");
+    }
+
+    #[test]
+    fn copy_value_normalization_joins_display_wrapped_fields() {
+        assert_eq!(normalize_copy_value("  one\n  two  \n"), "one two");
+    }
 }

@@ -76,13 +76,13 @@ fn wg_helper_override_allowed(p: &str) -> bool {
 /// during `cargo run`.
 fn helper_path() -> &'static str {
     HELPER.get_or_init(|| {
-        if let Ok(p) = std::env::var("WG_HELPER") {
-            if wg_helper_override_allowed(&p) {
-                return p;
-            }
-            // Unsafe override in a release build — ignore it and fall back to the
-            // trusted installed paths rather than running an attacker's script.
+        if let Ok(p) = std::env::var("WG_HELPER")
+            && wg_helper_override_allowed(&p)
+        {
+            return p;
         }
+        // Unsafe override in a release build — ignore it and fall back to the
+        // trusted installed paths rather than running an attacker's script.
         let candidates = [
             "/usr/local/lib/wireguard-tui/wg-helper",
             "/usr/lib/wireguard-tui/wg-helper",
@@ -101,10 +101,9 @@ fn helper_path() -> &'static str {
         if let Some(adj) = std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|d| d.join("wg-helper")))
+            && adj.is_file()
         {
-            if adj.is_file() {
-                return adj.to_string_lossy().into_owned();
-            }
+            return adj.to_string_lossy().into_owned();
         }
         // dev fallback: a helper built from src/bin/wg-helper.rs.
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -687,7 +686,9 @@ pub fn validate_config(text: &str) -> Result<(), String> {
     match cfg.private_key.as_deref() {
         None | Some("") => return Err("[Interface] is missing PrivateKey.".into()),
         Some(k) if !is_wg_key(k) => {
-            return Err("PrivateKey is not a valid WireGuard key (expected 44-char base64).".into())
+            return Err(
+                "PrivateKey is not a valid WireGuard key (expected 44-char base64).".into(),
+            );
         }
         _ => {}
     }
@@ -703,10 +704,11 @@ pub fn validate_config(text: &str) -> Result<(), String> {
         }
     }
 
-    if let Some(port) = cfg.listen_port.as_deref() {
-        if !port.is_empty() && port.parse::<u32>().map(|p| p > 65535).unwrap_or(true) {
-            return Err(format!("ListenPort “{port}” is not a valid port."));
-        }
+    if let Some(port) = cfg.listen_port.as_deref()
+        && !port.is_empty()
+        && port.parse::<u32>().map(|p| p > 65535).unwrap_or(true)
+    {
+        return Err(format!("ListenPort “{port}” is not a valid port."));
     }
 
     if cfg.peers.is_empty() {
@@ -1022,9 +1024,11 @@ mod tests {
         ))
         .is_err());
         // no [Peer]
-        assert!(validate_config(&format!(
-            "[Interface]\nPrivateKey = {KEY}\nAddress = 10.0.0.2/24\n"
-        ))
-        .is_err());
+        assert!(
+            validate_config(&format!(
+                "[Interface]\nPrivateKey = {KEY}\nAddress = 10.0.0.2/24\n"
+            ))
+            .is_err()
+        );
     }
 }
