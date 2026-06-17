@@ -2,10 +2,22 @@
 
 ## Reporting a vulnerability
 
-Please report security issues privately via GitHub Security Advisories
-(**Security → Report a vulnerability**) on this repository, rather than opening a
-public issue. You'll get an acknowledgement as soon as possible. Please do not
-include real private keys or production configs in a report.
+Please report security issues **privately** — do not open a public issue for
+anything exploitable.
+
+- Preferred: GitHub **[Private vulnerability reporting](https://github.com/JamilleJung/wireguard-tui/security/advisories/new)**
+  (Security → Report a vulnerability).
+- Or email: **izeystudio@gmail.com**
+
+Please include the version (or commit), your distro + package manager, repro
+steps, and impact. Do **not** include real private keys or production configs.
+Coordinated disclosure is appreciated — you'll get an acknowledgement as soon as
+possible and be kept updated on a fix.
+
+## Supported versions
+
+This is an early project; only the latest release (and `main`) receive fixes.
+If you are running an older version, please upgrade before reporting.
 
 ## Threat model
 

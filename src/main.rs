@@ -8,7 +8,6 @@ mod config;
 mod create;
 mod doctor;
 mod secrets;
-mod ui;
 mod validation;
 
 use std::io;

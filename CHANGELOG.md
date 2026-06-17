@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-06-18
+
+### Security
+- SECURITY.md unified: supported versions, email fallback, threat model, 
+  helper path pinning, `WG_ALLOW_UNSAFE_HELPER`, private key handling,
+  supply chain verification.
+- FwMark detection hardened to exact key-name match (prevents `FwMarkFile` confusion).
+
+### Fixed
+- CHANGELOG wording corrected (removed stale `popup_area` claim, fixed `DetailRow` reference).
+- `+` quick-add-peer key now visible in Advanced footer and help screen.
+- `src/ui/` placeholder module removed.
+
 ## [1.6.3] - 2026-06-18
 
 ### Fixed
