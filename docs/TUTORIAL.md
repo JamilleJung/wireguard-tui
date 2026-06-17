@@ -50,6 +50,7 @@ Then launch it:
 
 ```sh
 wg-tui
+# or: wireguard-tui
 ```
 
 ### What the installer does
@@ -129,7 +130,7 @@ useful to run first over SSH.
 ### Check your system: wg-tui doctor
 
 ```sh
-wg-tui doctor
+wg-tui doctor     # or: wireguard-tui doctor
 ```
 
 `doctor` is read-only and needs no root. It prints a plain-language checklist:
@@ -146,7 +147,7 @@ so you (or a script) can tell at a glance how healthy the box is:
 ### Fix what's missing: wg-tui setup
 
 ```sh
-wg-tui setup
+wg-tui setup      # or: wireguard-tui setup
 ```
 
 `setup` is a guided, confirmation-based fix. It offers to install
@@ -406,8 +407,8 @@ su root -c 'apt install openresolv'
 ```
 
 If **systemd-resolved** is already active (the default on Ubuntu and Fedora), this
-is already covered and you need nothing. `wg-tui doctor` shows a
-"DNS for tunnels (resolvconf)" line, and `wg-tui setup` offers to install the
+is already covered and you need nothing. `wg-tui doctor` (or `wireguard-tui doctor`) shows a
+"DNS for tunnels (resolvconf)" line, and `wg-tui setup` (or `wireguard-tui setup`) offers to install the
 provider for you.
 
 ### "<user> is not in the sudoers file"

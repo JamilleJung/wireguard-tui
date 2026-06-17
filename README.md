@@ -207,15 +207,17 @@ Launch:
 
 ```sh
 wg-tui
+# or the longer name:
+wireguard-tui
 ```
 
-CLI helpers:
+CLI helpers (both names work):
 
 ```sh
-wg-tui --version
-wg-tui --help
-wg-tui doctor
-wg-tui setup
+wg-tui --version      # or: wireguard-tui --version
+wg-tui --help         # or: wireguard-tui --help
+wg-tui doctor         # or: wireguard-tui doctor
+wg-tui setup          # or: wireguard-tui setup
 ```
 
 Keys in the main UI:
