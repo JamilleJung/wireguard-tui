@@ -437,7 +437,6 @@ not log private keys.
 
 ## Roadmap
 
-- More helper, installer, and doctor tests, including firewall rule dry-run coverage.
 - More distro packages where maintainers want them (COPR, official Alpine/Void).
 
 ## License
