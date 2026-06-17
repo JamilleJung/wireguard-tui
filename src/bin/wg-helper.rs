@@ -633,7 +633,11 @@ fn ensure_tunnel_has_fwmark(name: &str) -> Result<(), String> {
     let was_active = interface_active(name);
     let already_has = cfg.lines().any(|line| {
         let lower = line.trim().to_ascii_lowercase();
-        lower.starts_with("fwmark") && lower.contains('=')
+        lower == "fwmark"
+            || lower
+                .split_once('=')
+                .map(|(k, _)| k.trim() == "fwmark")
+                .unwrap_or(false)
     });
     if already_has {
         // FwMark already present; bring tunnel up if it isn't active yet.
@@ -1079,11 +1083,16 @@ mod tests {
         let without_mark = "PrivateKey = x\nAddress = 10.0.0.1/24\n";
         let with_mark_lower = "privatekey = x\nfwmark = 99\n";
         let with_spaces = "FwMark   =   42\n";
+        let with_prefix = "FwMarkFile = /tmp/x\n"; // NOT a real FwMark line
 
         let has = |cfg: &str| {
             cfg.lines().any(|line| {
                 let lower = line.trim().to_ascii_lowercase();
-                lower.starts_with("fwmark") && lower.contains('=')
+                lower == "fwmark"
+                    || lower
+                        .split_once('=')
+                        .map(|(k, _)| k.trim() == "fwmark")
+                        .unwrap_or(false)
             })
         };
 
@@ -1091,6 +1100,8 @@ mod tests {
         assert!(!has(without_mark));
         assert!(has(with_mark_lower));
         assert!(has(with_spaces));
+        // "FwMarkFile" is a different directive — exact matching correctly rejects it.
+        assert!(!has(with_prefix));
     }
 
     #[test]
