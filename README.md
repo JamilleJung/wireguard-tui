@@ -437,7 +437,6 @@ not log private keys.
 ## Roadmap
 
 - Better advanced peer editing without turning the TUI into a heavy form app.
-- SSH-auto-detect for kill switch (auto-allowlist when connected via SSH).
 - More helper, installer, and doctor tests, including firewall rule dry-run coverage.
 - More distro packages where maintainers want them (COPR, official Alpine/Void).
 - Terminal QR cell-aspect-ratio auto-detection for better rendering.
