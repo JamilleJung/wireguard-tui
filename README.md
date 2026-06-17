@@ -409,8 +409,7 @@ not log private keys.
   systemd-resolved if your configs use `DNS =`.
 - The helper prompts every time: run `./install.sh` or `./install.sh --polkit`
   so the installed helper path is authorized.
-- Kill switch fails: the tunnel must be active and the system needs iptables or
-  ip6tables available.
+- Kill switch fails: the tunnel must be active and the system needs nftables, iptables, or ip6tables available.
 - Start-on-boot is unavailable: the system does not provide `systemctl`.
 - The Log tab is empty: `journalctl` is missing or the system is not using
   journald.
@@ -435,11 +434,11 @@ not log private keys.
 
 ## Roadmap
 
-- nftables backend for kill switch on systems that do not ship iptables.
 - Better advanced peer editing without turning the TUI into a heavy form app.
-- More helper, installer, and doctor tests, including firewall rule dry-run
-  coverage.
-- More distro packages where maintainers want them.
+- SSH-auto-detect for kill switch (auto-allowlist when connected via SSH).
+- More helper, installer, and doctor tests, including firewall rule dry-run coverage.
+- More distro packages where maintainers want them (COPR, official Alpine/Void).
+- Terminal QR cell-aspect-ratio auto-detection for better rendering.
 
 ## License
 
