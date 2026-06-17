@@ -4,11 +4,11 @@
 
 mod backend;
 mod clipboard;
-mod ui;
 mod config;
 mod create;
 mod doctor;
 mod secrets;
+mod ui;
 mod validation;
 
 use std::io;
@@ -318,6 +318,7 @@ fn is_advanced_key(code: KeyCode) -> bool {
             | KeyCode::Char('c') // show running config
             | KeyCode::Char('p') // save live state
             | KeyCode::Char('K') // helper-managed kill switch
+            | KeyCode::Char('+') // quick-add peer section
             | KeyCode::Char('R') // rename
             | KeyCode::Char('x') // export all
     )
@@ -864,6 +865,7 @@ fn handle_key(
         }
         KeyCode::Char('s') => toggle_autostart(app, terminal)?,
         KeyCode::Char('K') => toggle_killswitch(app, terminal)?,
+        KeyCode::Char('+') => quick_add_peer(app, terminal)?,
         KeyCode::Char('i') => open_import_browser(app),
         KeyCode::Char('g') => generate_show(app),
         KeyCode::Char('c') => show_running(app),
@@ -1198,6 +1200,43 @@ fn show_qr(app: &mut App) {
         Ok(lines) => app.mode = Mode::Qr(lines),
         Err(e) => app.flash(format!("QR failed: {e}")),
     }
+}
+
+/// Quick-add a blank [Peer] section to the selected tunnel via $EDITOR.
+fn quick_add_peer(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
+    let Some(name) = app.selected_name() else {
+        app.flash("No tunnel selected");
+        return Ok(());
+    };
+    let cfg = match backend::read_config(&name) {
+        Ok(c) => c,
+        Err(e) => {
+            app.flash(e);
+            return Ok(());
+        }
+    };
+    let mut new_cfg = cfg.trim_end().to_string();
+    new_cfg.push_str(
+        "\n\n[Peer]\n# PublicKey = \n# AllowedIPs = \n# Endpoint = \n# PersistentKeepalive = 25\n",
+    );
+    ratatui::restore();
+    let result = run_editor(terminal, &new_cfg);
+    let _ = ratatui::init();
+    let Some(edited) = result? else {
+        return Ok(());
+    };
+    if let Err(e) = backend::validate_config(&edited) {
+        app.flash(format!("Validation failed: {e}"));
+        return Ok(());
+    }
+    match backend::save_config(&name, &edited) {
+        Ok(()) => {
+            app.flash("Peer section added. Edit to fill in the details.");
+            app.reload();
+        }
+        Err(e) => app.flash(format!("Save failed: {e}")),
+    }
+    Ok(())
 }
 
 /// Open the user's $EDITOR on an existing tunnel's config, then validate + save.
@@ -1786,19 +1825,46 @@ fn qr_lines(text: &str) -> Result<Vec<Line<'static>>, String> {
     };
     let q = 2i32; // quiet zone
     let total = w + 2 * q;
+
+    // Auto-detect cell aspect ratio: if the terminal is wider than 2.2× its
+    // height, cells are likely square-ish (e.g. VS Code, kitty with square
+    // font). Use full-block rendering (1 cell = 1 module). Otherwise use the
+    // classic half-block "▀" which doubles vertical resolution for 2:1 cells.
+    let (step, ch) = if terminal_square_cells() {
+        (1i32, '█')
+    } else {
+        (2i32, '▀')
+    };
+
     let mut lines: Vec<Line<'static>> = Vec::new();
     let mut y = 0;
     while y < total {
         let mut spans: Vec<Span<'static>> = Vec::with_capacity(total as usize);
         for x in 0..total {
-            let top = dark(x - q, y - q);
-            let bot = dark(x - q, y + 1 - q);
-            let fg = if top { Color::Black } else { Color::White };
-            let bg = if bot { Color::Black } else { Color::White };
-            spans.push(Span::styled("▀", Style::default().fg(fg).bg(bg)));
+            if step == 2 {
+                let top = dark(x - q, y - q);
+                let bot = dark(x - q, y + 1 - q);
+                let fg = if top { Color::Black } else { Color::White };
+                let bg = if bot { Color::Black } else { Color::White };
+                spans.push(Span::styled("▀", Style::default().fg(fg).bg(bg)));
+            } else {
+                let on = dark(x - q, y - q);
+                spans.push(Span::styled(
+                    if on { "█" } else { " " },
+                    Style::default().fg(Color::Black).bg(Color::White),
+                ));
+            }
         }
         lines.push(Line::from(spans));
-        y += 2;
+        y += step;
     }
     Ok(lines)
+}
+
+/// Heuristic: if the terminal area width ÷ height > 2.2, cells are probably
+/// square-ish (not the classic 2:1 terminal-cell aspect ratio).
+fn terminal_square_cells() -> bool {
+    crossterm::terminal::size()
+        .map(|(w, h)| w as f64 / h.max(1) as f64 > 2.2)
+        .unwrap_or(false)
 }

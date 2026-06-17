@@ -754,17 +754,27 @@ fn killswitch_enable_nft(name: &str, mark: &str) -> Result<(), String> {
     // SSH safety: when $SSH_CONNECTION is set, insert an ACCEPT rule for
     // established/related SSH return traffic before the kill-switch rules
     // so the current session survives.
-    let ssh_port = std::env::var("SSH_CONNECTION").ok().and_then(|conn| {
-        conn.split_whitespace().nth(3)?.parse::<u16>().ok()
-    });
+    let ssh_port = std::env::var("SSH_CONNECTION")
+        .ok()
+        .and_then(|conn| conn.split_whitespace().nth(3)?.parse::<u16>().ok());
     if let Some(port) = ssh_port {
         let _ = command_output(
             "nft",
             &[
-                "insert", "rule", "inet", "filter", "output",
-                "tcp", "sport", &port.to_string(),
-                "ct", "state", "established,related", "accept",
-                "comment", &comment,
+                "insert",
+                "rule",
+                "inet",
+                "filter",
+                "output",
+                "tcp",
+                "sport",
+                &port.to_string(),
+                "ct",
+                "state",
+                "established,related",
+                "accept",
+                "comment",
+                &comment,
             ],
             None,
             Duration::from_secs(5),
@@ -845,20 +855,33 @@ fn killswitch_flush_iptables(name: &str) {
 fn killswitch_enable_iptables(name: &str, mark: &str) -> Result<(), String> {
     let comment = kill_comment(name);
     killswitch_flush_iptables(name);
-    let ssh_port = std::env::var("SSH_CONNECTION").ok().and_then(|conn| {
-        conn.split_whitespace().nth(3)?.parse::<u16>().ok()
-    });
+    let ssh_port = std::env::var("SSH_CONNECTION")
+        .ok()
+        .and_then(|conn| conn.split_whitespace().nth(3)?.parse::<u16>().ok());
     if let Some(port) = ssh_port {
         for tool_name in ["iptables", "ip6tables"] {
-            if !have_tool(tool_name) { continue; }
+            if !have_tool(tool_name) {
+                continue;
+            }
             let _ = command_output(
                 tool_name,
                 &[
-                    "-I", "OUTPUT",
-                    "-p", "tcp", "--sport", &port.to_string(),
-                    "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED",
-                    "-m", "comment", "--comment", &comment,
-                    "-j", "ACCEPT",
+                    "-I",
+                    "OUTPUT",
+                    "-p",
+                    "tcp",
+                    "--sport",
+                    &port.to_string(),
+                    "-m",
+                    "conntrack",
+                    "--ctstate",
+                    "ESTABLISHED,RELATED",
+                    "-m",
+                    "comment",
+                    "--comment",
+                    &comment,
+                    "-j",
+                    "ACCEPT",
                 ],
                 None,
                 Duration::from_secs(5),
@@ -940,9 +963,7 @@ fn killswitch_status(name: &str) -> Result<(), String> {
 fn killswitch_enable(name: &str) -> Result<(), String> {
     // SSH safety: warn when $SSH_CONNECTION is set (kill switch can lock out).
     if std::env::var("SSH_CONNECTION").is_ok() {
-        eprintln!(
-            "wg-helper: SSH session detected — auto-allowing established SSH traffic. "
-        );
+        eprintln!("wg-helper: SSH session detected — auto-allowing established SSH traffic. ");
     }
 
     // 1. Ensure tunnel has FwMark and is active.
@@ -1108,6 +1129,67 @@ mod tests {
     }
 
     #[test]
+    fn tunnel_name_edge_cases() {
+        // Valid names at the boundary.
+        assert!(name_ok("a")); // single char
+        assert!(name_ok("a1")); // alphanumeric
+        assert!(name_ok("a.b")); // dots ok
+        assert!(name_ok("a-b")); // hyphens ok
+        assert!(name_ok("a_b")); // underscores ok
+        assert!(name_ok("a12345678901234")); // 15 chars max
+        // Invalid edge cases.
+        assert!(!name_ok("")); // empty
+        assert!(!name_ok("a123456789012345")); // 16 chars — too long
+        assert!(!name_ok("-a")); // leading hyphen
+        assert!(!name_ok(".a")); // leading dot
+        assert!(!name_ok("a..b")); // double dot
+    }
+
+    #[test]
+    fn config_validation_edge_cases() {
+        // Empty config
+        assert!(validate_config_text("").is_err());
+        // Only comment
+        assert!(validate_config_text("# just a comment").is_err());
+        // Interface with no private key
+        assert!(validate_config_text("[Interface]\nAddress = 10.0.0.1/24\n").is_err());
+        // Peer with no public key
+        assert!(
+            validate_config_text(&format!(
+                "[Interface]\nPrivateKey = {KEY}\n\n[Peer]\nAllowedIPs = 0.0.0.0/0\n"
+            ))
+            .is_err()
+        );
+        // Peer with no allowed IPs
+        assert!(
+            validate_config_text(&format!(
+                "[Interface]\nPrivateKey = {KEY}\n\n[Peer]\nPublicKey = {KEY}\n"
+            ))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn redact_handles_empty_and_comments() {
+        assert_eq!(redact(""), "");
+        assert_eq!(redact("# nothing secret"), "# nothing secret");
+        // Case insensitivity for PrivateKey
+        let out = redact("privatekey = secret\nPRESHAREDKEY = also-secret");
+        assert!(out.contains("<redacted>"));
+        assert!(!out.contains("secret"));
+        assert!(!out.contains("also-secret"));
+    }
+
+    #[test]
+    fn atomic_write_paths_are_fixed() {
+        // Paths must always stay under /etc/wireguard
+        assert!(conf_path("wg0").starts_with("/etc/wireguard"));
+        assert!(conf_path("home-vpn").starts_with("/etc/wireguard"));
+        // No escaping even with tricky names (validation would reject these anyway)
+        assert_eq!(conf_path("wg0"), Path::new("/etc/wireguard/wg0.conf"));
+    }
+
+    #[test]
     fn killswitch_nft_rule_structure() {
         // Verify the nftables rules we generate have valid structure
         // (comment is essential for later cleanup).
@@ -1136,11 +1218,17 @@ mod tests {
     fn ssh_port_parsing() {
         // Simulate SSH_CONNECTION parsing
         let conn = "192.168.1.5 52341 10.0.0.1 22";
-        let port: Option<u16> = conn.split_whitespace().nth(3).and_then(|s| s.parse::<u16>().ok());
+        let port: Option<u16> = conn
+            .split_whitespace()
+            .nth(3)
+            .and_then(|s| s.parse::<u16>().ok());
         assert_eq!(port, Some(22));
 
         let bad = "garbage";
-        let port2: Option<u16> = bad.split_whitespace().nth(3).and_then(|s| s.parse::<u16>().ok());
+        let port2: Option<u16> = bad
+            .split_whitespace()
+            .nth(3)
+            .and_then(|s| s.parse::<u16>().ok());
         assert_eq!(port2, None);
     }
 
