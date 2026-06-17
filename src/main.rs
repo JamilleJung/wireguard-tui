@@ -1825,46 +1825,21 @@ fn qr_lines(text: &str) -> Result<Vec<Line<'static>>, String> {
     };
     let q = 2i32; // quiet zone
     let total = w + 2 * q;
-
-    // Auto-detect cell aspect ratio: if the terminal is wider than 2.2× its
-    // height, cells are likely square-ish (e.g. VS Code, kitty with square
-    // font). Use full-block rendering (1 cell = 1 module). Otherwise use the
-    // classic half-block "▀" which doubles vertical resolution for 2:1 cells.
-    let (step, ch) = if terminal_square_cells() {
-        (1i32, '█')
-    } else {
-        (2i32, '▀')
-    };
+    let step = 2i32; // half-block ─ doubles vertical resolution for 2:1 cells
 
     let mut lines: Vec<Line<'static>> = Vec::new();
     let mut y = 0;
     while y < total {
         let mut spans: Vec<Span<'static>> = Vec::with_capacity(total as usize);
         for x in 0..total {
-            if step == 2 {
-                let top = dark(x - q, y - q);
-                let bot = dark(x - q, y + 1 - q);
-                let fg = if top { Color::Black } else { Color::White };
-                let bg = if bot { Color::Black } else { Color::White };
-                spans.push(Span::styled("▀", Style::default().fg(fg).bg(bg)));
-            } else {
-                let on = dark(x - q, y - q);
-                spans.push(Span::styled(
-                    if on { "█" } else { " " },
-                    Style::default().fg(Color::Black).bg(Color::White),
-                ));
-            }
+            let top = dark(x - q, y - q);
+            let bot = dark(x - q, y + 1 - q);
+            let fg = if top { Color::Black } else { Color::White };
+            let bg = if bot { Color::Black } else { Color::White };
+            spans.push(Span::styled("▀", Style::default().fg(fg).bg(bg)));
         }
         lines.push(Line::from(spans));
         y += step;
     }
     Ok(lines)
-}
-
-/// Heuristic: if the terminal area width ÷ height > 2.2, cells are probably
-/// square-ish (not the classic 2:1 terminal-cell aspect ratio).
-fn terminal_square_cells() -> bool {
-    crossterm::terminal::size()
-        .map(|(w, h)| w as f64 / h.max(1) as f64 > 2.2)
-        .unwrap_or(false)
 }
