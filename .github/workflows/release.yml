@@ -30,10 +30,15 @@ jobs:
           - { target: aarch64-unknown-linux-musl, arch: aarch64 }
           - { target: armv7-unknown-linux-musleabihf, arch: armv7 }
     env:
-      # Link every musl target with the toolchain's own cross-linker (rust-lld),
-      # so a fully static binary is produced for all CPUs without Docker/QEMU or
-      # an external cross-gcc — and using the host's modern stable Rust.
-      RUSTFLAGS: "-C linker=rust-lld"
+      # Link the musl TARGET binaries with the toolchain's own cross-linker
+      # (rust-lld). Set it PER TARGET (not via global RUSTFLAGS) so it never
+      # touches host build-scripts / proc-macros / `cargo install`, which must
+      # link with the default host linker. This yields fully static binaries for
+      # every CPU without Docker/QEMU or an external cross-gcc.
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+      CARGO_TARGET_I686_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+      CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER: rust-lld
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -52,8 +57,11 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Build static binaries (musl)
-        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --version =0.7.4 --locked
+
+      - name: Build static binaries (musl, with embedded SBOM)
+        run: cargo auditable build --release --locked --target ${{ matrix.target }}
 
       - name: Stage tarball
         env:
@@ -93,9 +101,12 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --version =0.7.4 --locked
+
       - name: Build + test
         run: |
-          cargo build --release --locked
+          cargo auditable build --release --locked
           cargo test --locked
 
       - name: Smoke and shell validation
