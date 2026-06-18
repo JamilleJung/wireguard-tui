@@ -18,7 +18,7 @@ path = "src/bin/wg-helper.rs"
 
 [dependencies]
 ratatui = "0.29"
-crossterm = "0.28"
+crossterm = "0.29"
 libc = "0.2"
 zip = { version = "4", default-features = false, features = ["deflate"] }
 qrcode = { version = "0.14", default-features = false }
