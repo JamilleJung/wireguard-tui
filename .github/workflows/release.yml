@@ -52,8 +52,11 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Build static binaries (musl)
-        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --version =0.7.4 --locked
+
+      - name: Build static binaries (musl, with embedded SBOM)
+        run: cargo auditable build --release --locked --target ${{ matrix.target }}
 
       - name: Stage tarball
         env:
@@ -93,9 +96,12 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --version =0.7.4 --locked
+
       - name: Build + test
         run: |
-          cargo build --release --locked
+          cargo auditable build --release --locked
           cargo test --locked
 
       - name: Smoke and shell validation
