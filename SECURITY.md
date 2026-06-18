@@ -154,3 +154,20 @@ sha256sum -c SHA256SUMS --ignore-missing
 
 When in doubt, **build from source** - the project is pure Rust with no GUI/C
 dependencies, so `cargo build --release` is reproducible on any supported distro.
+
+### 🧾 Dependency advisories (accepted, documented)
+
+`cargo audit` runs in CI against the RUSTSEC database. Two advisories are flagged
+on **transitive proc-macro / optional** dependencies of the `ratatui` terminal-UI
+framework - `paste` (a build-time proc-macro) and `lru` (an optional, disabled
+crate). These are **unmaintained / soundness-lint advisories, not exploitable
+vulnerabilities**, and they live inside `ratatui`, which this project does not
+control; eliminating them would mean replacing the entire TUI framework. They are
+listed as documented `--ignore` entries in the audit gate, which **still fails on
+any real or new vulnerability**, and Dependabot watches for upstream fixes so the
+ignores can be dropped once a clean update lands.
+
+To see what a shipped binary *actually* contains (the audit gate scans the full
+lockfile, including non-shipping deps), every release binary embeds an SBOM via
+`cargo auditable build` - run `cargo audit bin <binary>` to audit exactly what
+was compiled in.

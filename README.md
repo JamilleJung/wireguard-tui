@@ -344,6 +344,19 @@ genuinely need a hook, edit the file under `/etc/wireguard` directly as root.
 
 QR and zip export contain private keys. Treat them like the config file itself.
 
+### 🧾 Dependency advisories
+
+`cargo audit` (run in CI) flags two **unmaintained / soundness** advisories on
+transitive **proc-macro / optional** dependencies of the `ratatui` terminal-UI
+framework (`paste`, `lru`). **Neither is exploitable, and neither ships in a
+meaningful runtime path** - `paste` is a build-time proc-macro and `lru` is an
+optional-and-disabled crate inside `ratatui`, which this project does not
+control. Removing them would mean replacing the entire TUI framework. So they are
+documented `--ignore` entries in the audit gate, which still fails on any real or
+new vulnerability, and Dependabot watches for upstream fixes. Every release
+binary embeds an SBOM, so `cargo audit bin <binary>` audits exactly what was
+compiled in. See [SECURITY.md](SECURITY.md).
+
 ## 🔧 Hacking on it
 
 This is MIT open source. Fork it to hack on your own ideas.

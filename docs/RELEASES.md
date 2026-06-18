@@ -98,6 +98,15 @@ At a high level the release job:
 Because `wg-tui` and `wireguard-gui` are version-aligned, a release of one is cut
 in step with the other so the two stay feature-identical.
 
+CI also runs `cargo audit` against the RUSTSEC advisory database. Two advisories
+are flagged on transitive **proc-macro / optional** dependencies of `ratatui`
+(`paste`, `lru`) - neither is exploitable and neither ships in a meaningful
+runtime path. They are documented `--ignore` entries (the gate still fails on
+real or new vulnerabilities), and every release binary embeds an SBOM via
+`cargo auditable build`, so `cargo audit bin <file>` audits exactly what was
+compiled in. Dependabot watches for upstream fixes so the ignores can be removed
+once a clean update lands.
+
 ## 📋 Version history
 
 ### 1.6.0 (2026-06-17)
