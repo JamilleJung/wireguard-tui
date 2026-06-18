@@ -1,4 +1,4 @@
-# wireguard-tui tutorial (wg-tui)
+# 📖 wireguard-tui tutorial (wg-tui)
 
 A complete, beginner-friendly walkthrough of `wg-tui`, the terminal UI for
 managing WireGuard tunnels on Linux. No prior WireGuard knowledge is assumed.
@@ -8,7 +8,7 @@ This is the current release: **1.6.3**.
 
 ---
 
-## 1. What this is and who it's for
+## 1. 🎯 What this is and who it's for
 
 `wg-tui` (also available as `wireguard-tui`) is a terminal program (a "TUI" - text user interface) that lists your
 WireGuard tunnels, shows live status, and lets you connect, edit, import, and
@@ -36,7 +36,7 @@ what to install for your distro, read the companion guide:
 
 ---
 
-## 2. Requirements and install
+## 2. 📦 Requirements and install
 
 ### One-command install
 
@@ -53,7 +53,7 @@ wg-tui
 # or: wireguard-tui
 ```
 
-### What the installer does
+### ⚙️ What the installer does
 
 `./install.sh` detects your package manager - apt, dnf/yum, pacman, zypper, apk,
 xbps, or eopkg - and then:
@@ -121,7 +121,7 @@ cargo test                   # unit tests (parsing, validation, names)
 
 ---
 
-## 3. First run
+## 3. 🚀 First run
 
 `wg-tui` (or `wireguard-tui`) has two read-only / guided commands that check and fix your system. They
 do **not** launch the full-screen UI - they print and exit, which makes them
@@ -186,7 +186,7 @@ If you press an advanced key while in Easy mode, the footer reminds you:
 
 ---
 
-## 4. Get a tunnel in three ways
+## 4. 📥 Get a tunnel in three ways
 
 A "tunnel" is just a `.conf` file in `/etc/wireguard`. Here are the three ways to
 get one. Press **`r`** any time to refresh the list.
@@ -236,7 +236,7 @@ key (`wg genkey` / `wg genpsk`) and have them shown to you to copy into the conf
 
 ---
 
-## 5. Connect, disconnect, and read status
+## 5. 🔌 Connect, disconnect, and read status
 
 ### Connect / disconnect
 
@@ -267,7 +267,7 @@ when a server admin asks for your public key.
 
 ---
 
-## 6. Put a tunnel on your phone with Show QR
+## 6. 📱 Put a tunnel on your phone with Show QR
 
 To move a tunnel to the WireGuard mobile app, render it as a scannable QR code:
 
@@ -286,7 +286,7 @@ zoom out) and press **`Q`** again.
 
 ---
 
-## 7. Start-on-boot
+## 7. ⚡ Start-on-boot
 
 To have a tunnel come up automatically at every boot, highlight it and press
 **`s`** to toggle start-on-boot. This flips the systemd `wg-quick@<name>` unit.
@@ -302,7 +302,7 @@ start-on-boot does.
 
 ---
 
-## 8. Edit safely
+## 8. ✏️ Edit safely
 
 This needs **Advanced mode** (press **`m`**).
 
@@ -326,7 +326,7 @@ If the tunnel you edited is **currently running**, the change is applied live wi
 
 ---
 
-## 9. Rename, remove, export
+## 9. 🗂️ Rename, remove, export
 
 | Action | Key | Mode | Notes |
 |--------|-----|------|-------|
@@ -345,7 +345,7 @@ Two more Advanced-mode tools for live tunnels:
 
 ---
 
-## 10. Full key map reference
+## 10. ⌨️ Full key map reference
 
 These are the keys in the interactive UI. Press **`?`** at any time for the
 in-app help.
@@ -384,7 +384,7 @@ generate keys, running config, kill switch, save-live, rename, and export.
 
 ---
 
-## 11. Troubleshooting
+## 11. 🐛 Troubleshooting
 
 ### "resolvconf: command not found" / a tunnel with DNS = won't connect
 
@@ -464,7 +464,7 @@ and IP-forwarding questions for servers), see **[docs/DISTROS.md](DISTROS.md)**.
 
 ---
 
-## 12. Uninstall
+## 12. 🗑️ Uninstall
 
 Remove the binary, helper, optional desktop files, and the authorization rule:
 

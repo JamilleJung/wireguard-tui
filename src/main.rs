@@ -1218,10 +1218,10 @@ fn quick_add_peer(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io:
     new_cfg.push_str(
         "\n\n[Peer]\n# PublicKey = \n# AllowedIPs = \n# Endpoint = \n# PersistentKeepalive = 25\n",
     );
-    ratatui::restore();
-    let result = run_editor(terminal, &new_cfg);
-    let _ = ratatui::init();
-    let Some(edited) = result? else {
+    // run_editor already brackets $EDITOR with its own restore()/init() cycle
+    // (and reinstalls the panic hook), so call it directly like the other
+    // editor callers instead of wrapping it in a second restore()/init().
+    let Some(edited) = run_editor(terminal, &new_cfg)? else {
         return Ok(());
     };
     if let Err(e) = backend::validate_config(&edited) {

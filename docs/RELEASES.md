@@ -1,4 +1,4 @@
-# Releases
+# 📦 Releases
 
 This page is the friendly tour of wireguard-tui releases: where to download
 them, how to be sure a download is genuine, how each build is produced, and what
@@ -6,7 +6,7 @@ changed in every version. The terminal app `wg-tui` and its desktop sibling
 `wireguard-gui` are developed together and share a version number, so a `1.6.0`
 of one matches `1.6.0` of the other feature-for-feature.
 
-## Where to get releases
+## 📥 Where to get releases
 
 Every release lives on GitHub:
 
@@ -39,7 +39,7 @@ If you prefer a downloaded artifact, each release also ships build outputs such
 as `.deb`, x86_64 Linux tarball, aarch64 Linux tarball, and the signing files
 described next.
 
-## How artifacts are signed and how to verify them
+## ✅ How artifacts are signed and how to verify them
 
 Every release is signed with [minisign](https://jedisct1.github.io/minisign/), a
 tiny, modern signature tool. Two extra files travel with each release:
@@ -62,14 +62,14 @@ sha256sum -c SHA256SUMS
 If step 1 reports a good signature and step 2 prints `OK` for your file, the
 download is genuine and untampered. If either step fails, do not install the file.
 
-## How releases are built
+## 🔧 How releases are built
 
-### Continuous integration (every push and pull request)
+### 🔄 Continuous integration (every push and pull request)
 
 CI guards quality before anything is tagged. On each change it runs:
 
-- `cargo fmt --all -- --check` - formatting must be clean.
-- `cargo clippy --all-targets -- -D warnings` - lints are treated as errors, so
+- `cargo fmt --all - --check` - formatting must be clean.
+- `cargo clippy --all-targets - -D warnings` - lints are treated as errors, so
   no warning slips through.
 - `cargo test` - the unit tests for config parsing, validation and tunnel-name
   sanitisation run on every push and pull request.
@@ -81,7 +81,7 @@ CI guards quality before anything is tagged. On each change it runs:
 - Rust helper unit tests and negative helper tests prove traversal-style tunnel names are rejected before
   any filesystem access.
 
-### The tagged release flow
+### 🏷️ The tagged release flow
 
 Cutting a release is triggered by pushing a version tag (for example `v1.6.0`).
 At a high level the release job:
@@ -98,27 +98,27 @@ At a high level the release job:
 Because `wg-tui` and `wireguard-gui` are version-aligned, a release of one is cut
 in step with the other so the two stay feature-identical.
 
-## Version history
+## 📋 Version history
 
 ### 1.6.0 (2026-06-17)
 
-- **nftables kill switch backend** — preferred when `nft` is available (`inet filter` table covers both IPv4+IPv6); iptables/ip6tables fallback.
-- **SSH safety warning** — the helper warns (stderr) before enabling a kill switch over an SSH connection.
-- **Copy UX** — click the value text or trailing ⧉ icon to copy; no more large "Copy" button.
-- **Log tab** — `TextEdit` (read-only) for native text selection and scrolling; journal limits raised to 1000 lines.
-- **Speed display** — uses ↓ ↑ icons instead of "down"/"up"; throughput calculation is more robust (no longer gated on active flag).
-- **More tests** — kill switch rule generation tests: nftables handle extraction and iptables rule numbering.
+- **nftables kill switch backend** - preferred when `nft` is available (`inet filter` table covers both IPv4+IPv6); iptables/ip6tables fallback.
+- **SSH safety warning** - the helper warns (stderr) before enabling a kill switch over an SSH connection.
+- **Copy UX** - click the value text or trailing ⧉ icon to copy; no more large "Copy" button.
+- **Log tab** - `TextEdit` (read-only) for native text selection and scrolling; journal limits raised to 1000 lines.
+- **Speed display** - uses ↓ ↑ icons instead of "down"/"up"; throughput calculation is more robust (no longer gated on active flag).
+- **More tests** - kill switch rule generation tests: nftables handle extraction and iptables rule numbering.
 
-## 1.6.3 (2026-06-18) — Clippy clean, QR fix, docs sync
+## 1.6.3 (2026-06-18) - Clippy clean, QR fix, docs sync
 
 - Zero clippy warnings across all targets (`-D warnings` enforced).
 - Terminal QR simplified to half-block only (auto-detect caused false "too large").
 - All markdown documentation audited and synchronized.
 
-## 1.6.2 (2026-06-18) — SSH allowlist, 92 tests, copy/log UX
+## 1.6.2 (2026-06-18) - SSH allowlist, 92 tests, copy/log UX
 
 - **SSH auto-allowlist.** Kill switch now auto-allows established SSH traffic when `$SSH_CONNECTION` is set.
-- **Copy UX.** Click the value text or ⧉ icon to copy — no more large "Copy" button.
+- **Copy UX.** Click the value text or ⧉ icon to copy - no more large "Copy" button.
 - **Log tab.** 1000 journal lines, `TextEdit` read-only for text selection and scrolling.
 - **Speed fix.** Reliable active detection via `wg show interfaces`; ↓ ↑ icons.
 - **92 tests** across both repos (helper + main).
@@ -369,7 +369,7 @@ Highlights:
 - A universal installer (`install.sh`) for apt, dnf/yum, pacman, zypper, apk, xbps
   and eopkg, with a minimal-install dependency check.
 
-## Versioning policy
+## 📜 Versioning policy
 
 - The project follows [Semantic Versioning](https://semver.org/) - `MAJOR.MINOR.PATCH`.
   In short: PATCH for backward-compatible fixes, MINOR for backward-compatible new

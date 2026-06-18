@@ -120,7 +120,7 @@ jobs:
       # ---------------- .deb ----------------
       - name: Build .deb
         run: |
-          cargo install cargo-deb --locked
+          cargo install cargo-deb --version '^2' --locked
           cargo deb --no-build --no-strip || cargo deb
           cp target/debian/*.deb .   # mandatory: fail the release if none exists
 

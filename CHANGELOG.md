@@ -1,10 +1,47 @@
-# Changelog
+# 📋 Changelog
 
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [1.6.5] - 2026-06-18
+
+### Security
+- Exported tunnel archive (which bundles every `PrivateKey`/`PresharedKey`) is
+  now created `0600` and with `O_NOFOLLOW`, closing a world/group-readable +
+  symlink-clobber key leak (`File::create` previously used the process umask).
+- Kill switch IPv6 fallback now fails closed: when only iptables is available,
+  the host has a non-loopback IPv6 address, and `ip6tables` is missing, enabling
+  the kill switch errors instead of silently leaving IPv6 unprotected while the
+  status still reads "enabled".
+
+### Fixed
+- Kill switch no longer blocks the tunnel's own traffic: added an explicit allow
+  rule for packets leaving the WireGuard interface (`oifname <iface>`).
+  Previously every packet routed into the tunnel hit the terminal REJECT, so
+  enabling the kill switch cut off all VPN traffic.
+- Deactivating a tunnel now tears the kill switch down with it (`down` calls
+  `killswitch_disable`), preventing the orphaned REJECT rule that otherwise
+  locked the machine out of all non-loopback egress.
+- FwMark is now set at runtime (`wg set <iface> fwmark`) instead of being
+  appended to the `.conf`, where it landed inside the last `[Peer]` section and
+  corrupted the config; this also removes the down/up restart and its leak
+  window, and prefers the fwmark `wg-quick` already assigned.
+- `PersistentKeepalive = off` is accepted as the valid WireGuard value it is.
+- Repeated `Address`/`AllowedIPs`/`DNS` lines are combined when parsing rather
+  than last-write-wins, so both an IPv4 and an IPv6 value survive.
+- Endpoint validation rejects malformed hosts (leading `-`, invalid dotted
+  quads such as `999.999.999.999`) and ports with a leading `+`.
+- Import-name sanitisation collapses `..`, so an imported file can no longer
+  produce a name the privileged helper rejects.
+- `quick_add_peer` no longer wraps the external editor in a redundant second
+  `restore()`/`init()` cycle (it discarded a freshly-initialised terminal and
+  grew the panic-hook chain).
+
+### CI
+- `cargo-deb` is version-pinned (`^2`) in the release workflow.
 
 ## [1.6.4] - 2026-06-18
 
@@ -241,7 +278,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Terminal rendering corruption on some fonts/locales.** The UI no longer uses
-  ambiguous/wide Unicode glyphs (arrows, `●`/`○` dots, `…`, dingbats) that some
+  ambiguous/wide Unicode glyphs (arrows, `●`/`○` dots, `...`, dingbats) that some
   terminals render double-width or as tofu, garbling the layout - it is now
   ASCII-only (box-drawing borders aside).
 

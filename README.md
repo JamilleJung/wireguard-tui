@@ -24,7 +24,7 @@ Prefer a desktop window? The sibling
 [`wireguard-gui`](https://github.com/JamilleJung/wireguard-gui) provides the same
 project philosophy as a native Slint GUI.
 
-## Design philosophy
+## 💡 Design philosophy
 
 This project is intentionally small.
 
@@ -42,7 +42,7 @@ The goal is a native terminal client that is easy to use, easy to inspect, easy
 to fork, and still close enough to WireGuard primitives that you can understand
 what it is doing.
 
-## Why a TUI?
+## 🤔 Why a TUI?
 
 Terminal users do not need a browser dashboard just to bring a tunnel up. They
 also should not have to memorize scattered commands for routine operations.
@@ -55,13 +55,13 @@ display, editing, diagnostics, and boot-time activation.
 It is useful on laptops, servers, routers, SSH sessions, and minimal Linux
 systems where a desktop stack is the wrong dependency.
 
-## Screenshot
+## 🖼️ Screenshot
 
 <img src="docs/screenshot.svg" alt="wg-tui screenshot" width="900">
 
-## What it does
+## ✨ What it does
 
-### Everyday terminal workflow
+### 📋 Everyday terminal workflow
 
 - Lists tunnels from `/etc/wireguard`.
 - Shows active/inactive state.
@@ -74,7 +74,7 @@ systems where a desktop stack is the wrong dependency.
 - Provides a Log tab backed by journald where available.
 - Copies the interface public key through OSC 52 when the terminal supports it.
 
-### Config and import/export
+### ✏️ Config and import/export
 
 - Edits the selected tunnel in `$VISUAL`, then `$EDITOR`, then `nano`.
 - Creates temp editor files mode `0600` under a private user directory.
@@ -90,7 +90,7 @@ systems where a desktop stack is the wrong dependency.
 - Exports all tunnels to `~/wireguard-tunnels.zip`.
 - Renames and removes tunnels through helper verbs.
 
-### Advanced operations
+### ⚙️ Advanced operations
 
 - Shows running config with `wg showconf`.
 - Applies compatible saved edits to a running tunnel with `wg syncconf`.
@@ -101,13 +101,13 @@ systems where a desktop stack is the wrong dependency.
 - Provides Easy mode for everyday actions and Advanced mode for raw operations.
 - Remembers the Easy/Advanced preference under the user config directory.
 
-### Diagnostics
+### 🔬 Diagnostics
 
 - `wg-tui doctor` prints a read-only checklist.
 - `wg-tui setup` offers confirmation-based fixes for missing prerequisites.
 - `docs/DISTROS.md` explains client vs server/gateway setup by distro.
 
-## What it deliberately does not do
+## ❌ What it deliberately does not do
 
 - No GUI dependencies.
 - No desktop stack requirement.
@@ -120,9 +120,9 @@ systems where a desktop stack is the wrong dependency.
 - No hidden config database.
 - No bundled WireGuard kernel module.
 
-## Install
+## 📦 Install
 
-### Prebuilt packages
+### 📦 Prebuilt packages
 
 The release page normally includes:
 
@@ -136,7 +136,7 @@ The release page normally includes:
 The first-party packages install `wg-tui`, `wg-helper`, and the authorization
 rule. They do not install GUI libraries.
 
-### Build from source
+### 🛠️ Build from source
 
 ```sh
 git clone https://github.com/JamilleJung/wireguard-tui.git
@@ -182,7 +182,7 @@ Uninstall:
 
 Tunnel configs in `/etc/wireguard` are left in place.
 
-## Verify releases
+## ✅ Verify releases
 
 Download the artifact you want plus `SHA256SUMS`. When `SHA256SUMS.minisig` is
 attached, verify both the signature and checksum:
@@ -201,7 +201,7 @@ minisign -Vm SHA256SUMS -p minisign.pub
 If the signature is not attached for a release, use `SHA256SUMS` as an integrity
 check only and prefer building from source for higher assurance.
 
-## Usage and key map
+## 🎮 Usage and key map
 
 Launch:
 
@@ -265,7 +265,7 @@ Easy mode shows everyday actions, including creating a tunnel. Advanced mode
 adds raw editing, key generation, running config, kill switch, save-live,
 rename, and export. The mode choice is remembered.
 
-## Doctor and setup
+## 🔬 Doctor and setup
 
 ```sh
 wg-tui doctor
@@ -294,7 +294,7 @@ resolvconf provider, and `/etc/wireguard` when missing. It does not connect
 tunnels, enable start-on-boot, delete configs, or install arbitrary config
 files. It points you at `install.sh` or packages for helper installation.
 
-## Security and privilege model
+## 🛡️ Security and privilege model
 
 Designed with a small auditable privilege boundary:
 
@@ -339,11 +339,11 @@ like scripts you might run as root.
 
 QR and zip export contain private keys. Treat them like the config file itself.
 
-## Hacking on it
+## 🔧 Hacking on it
 
 This is MIT open source. Fork it to hack on your own ideas.
 
-### Codebase map
+### 🗺️ Codebase map
 
 | Path | Purpose |
 |---|---|
@@ -362,11 +362,11 @@ This is MIT open source. Fork it to hack on your own ideas.
 | `packaging/` | Polkit, AUR/RPM/APK/Void metadata, optional desktop assets |
 | `.github/workflows/` | CI and release automation |
 
-### Build and test
+### ✅ Build and test
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
+cargo fmt --all - --check
+cargo clippy --all-targets - -D warnings
 cargo test
 cargo build --release
 bash -n install.sh
@@ -379,7 +379,7 @@ target/release/wg-tui --version
 target/release/wg-tui doctor
 ```
 
-### Run from source
+### 🚀 Run from source
 
 ```sh
 cargo run --release
@@ -397,14 +397,14 @@ In release builds, `WG_HELPER` is ignored unless `WG_ALLOW_UNSAFE_HELPER=1` is
 set and the target is an absolute, root-owned, non-world-writable file. That is
 intentional: a helper override can become a root boundary.
 
-### Adding an action safely
+### 🔒 Adding an action safely
 
 Keep normal terminal actions in `src/main.rs`. If an action needs root, add a
 fixed helper verb, validate tunnel names before filesystem access, keep paths
 fixed, avoid shell expansion, create backups before destructive changes, and do
 not log private keys.
 
-## Troubleshooting
+## 🐛 Troubleshooting
 
 - `wg-tui doctor` reports missing `wg` or `wg-quick`: install
   `wireguard-tools`.
@@ -423,7 +423,7 @@ not log private keys.
 - `$EDITOR` with complex shell quoting is not parsed like a shell command. Use a
   simple editor command or wrapper script.
 
-## Known limitations
+## 🚧 Known limitations
 
 - Start-on-boot is systemd-only.
 - The release workflow builds x86_64 and aarch64 tarballs; `.deb` coverage
@@ -435,11 +435,37 @@ not log private keys.
 - The kill switch is intentionally helper-managed firewall state, not a daemon
   or persistent firewall manager.
 
-## Roadmap
+## 🗺️ Roadmap
 
 - More distro packages where maintainers want them (COPR, official Alpine/Void).
 
-## License
+## ⭐ Star this project
+
+If `wg-tui` is useful to you, **please give it a star on GitHub** - it
+genuinely helps other people discover the project and motivates further work.
+
+👉 **[Star wireguard-tui on GitHub](https://github.com/JamilleJung/wireguard-tui)** ⭐
+
+You can also **watch** the repo for releases and **fork** it to hack on your own ideas.
+
+---
+
+## ☕ Buy me a coffee
+
+This is a free, open-source project built in spare time. If it saved you some
+trouble and you'd like to say thanks, a coffee is hugely appreciated 💛
+
+<div align="center">
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/jamillejung)
+
+**[☕ buymeacoffee.com/jamillejung](https://www.buymeacoffee.com/jamillejung)**
+
+</div>
+
+---
+
+## 📄 License
 
 MIT. WireGuard is a registered trademark of Jason A. Donenfeld. This is an
 independent, unofficial client and is not affiliated with or endorsed by the

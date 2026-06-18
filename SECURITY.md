@@ -1,8 +1,8 @@
-# Security Policy
+# 🛡️ Security Policy
 
-## Reporting a vulnerability
+## 📧 Reporting a vulnerability
 
-Please report security issues **privately** — do not open a public issue for
+Please report security issues **privately** - do not open a public issue for
 anything exploitable.
 
 - Preferred: GitHub **[Private vulnerability reporting](https://github.com/JamilleJung/wireguard-tui/security/advisories/new)**
@@ -11,15 +11,15 @@ anything exploitable.
 
 Please include the version (or commit), your distro + package manager, repro
 steps, and impact. Do **not** include real private keys or production configs.
-Coordinated disclosure is appreciated — you'll get an acknowledgement as soon as
+Coordinated disclosure is appreciated - you'll get an acknowledgement as soon as
 possible and be kept updated on a fix.
 
-## Supported versions
+## 📋 Supported versions
 
 This is an early project; only the latest release (and `main`) receive fixes.
 If you are running an older version, please upgrade before reporting.
 
-## Threat model
+## 🔍 Threat model
 
 `wg-tui` manages WireGuard tunnels under `/etc/wireguard`, which requires root.
 The design goal is to keep the part that runs as root as small and auditable as
@@ -41,12 +41,12 @@ possible, and to keep everything else unprivileged.
 - The security of WireGuard itself, the kernel module, or `wg`/`wg-quick`.
 - Physical access / a compromised terminal emulator.
 
-## The privilege boundary
+## 🔒 The privilege boundary
 
 The TUI runs as your normal user. **The only thing that runs as root is one
 small Rust helper binary**, `wg-helper` (`src/bin/wg-helper.rs` in source),
 invoked as
-`sudo -n wg-helper <verb> [name]` (sudoers mode) or `pkexec wg-helper …`
+`sudo -n wg-helper <verb> [name]` (sudoers mode) or `pkexec wg-helper ...`
 (polkit / fallback). Authorisation is scoped to **exactly that one helper path**:
 
 - the **sudoers** drop-in grants passwordless execution of only
@@ -93,7 +93,7 @@ run anything. `wg-tui`:
 **Treat a `.conf` like a script you are about to run as root.** Only activate
 tunnels whose source you trust.
 
-## Private keys and QR codes
+## 🔑 Private keys and QR codes
 
 - A tunnel `.conf` contains the interface **private key**. Files are written
   `0600`; backups are `0600` in `/etc/wireguard/.backup`.
@@ -108,7 +108,7 @@ tunnels whose source you trust.
 - **Export** writes every tunnel's `.conf` into a `.zip`; that archive contains
   private keys. Store it somewhere safe and delete it when done.
 
-## Supply chain & verifying a download
+## ✅ Supply chain & verifying a download
 
 - Third-party GitHub Actions are pinned to commit SHAs.
 - Each release ships a `SHA256SUMS` file, **signed with minisign**
