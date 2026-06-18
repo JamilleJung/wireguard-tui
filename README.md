@@ -124,14 +124,18 @@ systems where a desktop stack is the wrong dependency.
 
 ### 📦 Prebuilt packages
 
-The release page normally includes:
+The release page ships a **static binary for every common Linux CPU** - 32- and
+64-bit, Intel/AMD and ARM (no glibc version to worry about):
 
-- `wireguard-tui_*_amd64.deb`
-- `wireguard-tui-*-x86_64-linux.tar.gz`
-- `wireguard-tui-*-aarch64-linux.tar.gz`
-- `SHA256SUMS`
-- `SHA256SUMS.minisig` when signing is configured
-- `minisign.pub`
+- `wireguard-tui-*-x86_64-linux.tar.gz`  - 64-bit Intel/AMD
+- `wireguard-tui-*-i686-linux.tar.gz`    - 32-bit Intel/AMD
+- `wireguard-tui-*-aarch64-linux.tar.gz` - 64-bit ARM (Raspberry Pi 3/4/5, …)
+- `wireguard-tui-*-armv7-linux.tar.gz`   - 32-bit ARM (older Pi / embedded)
+- `wireguard-tui_*_amd64.deb`            - Debian/Ubuntu (x86_64)
+- `SHA256SUMS`, `SHA256SUMS.minisig`, `minisign.pub` - integrity + signature
+
+Not sure which to pick? Run `uname -m`: `x86_64` → x86_64, `i686`/`i386` → i686,
+`aarch64`/`arm64` → aarch64, `armv7l` → armv7.
 
 The first-party packages install `wg-tui`, `wg-helper`, and the authorization
 rule. They do not install GUI libraries.
@@ -332,10 +336,11 @@ Helper hardening:
   use iptables/ip6tables when present, and do not install a daemon.
 
 Important WireGuard reality: `wg-quick` supports `PreUp`, `PostUp`, `PreDown`,
-and `PostDown`. Those hooks run as root when a tunnel is activated. The TUI
-flags imported or edited configs that contain them, but it does not remove them
-because they are part of the plain WireGuard workflow. Treat imported configs
-like scripts you might run as root.
+and `PostDown`, which run **arbitrary commands as root** when a tunnel is
+activated. To keep the passwordless helper grant from becoming full root, the
+**helper refuses to save any config containing those hooks** - so an imported or
+hand-typed `.conf` with a `PostUp` line is rejected, not silently saved. If you
+genuinely need a hook, edit the file under `/etc/wireguard` directly as root.
 
 QR and zip export contain private keys. Treat them like the config file itself.
 
@@ -426,8 +431,8 @@ not log private keys.
 ## 🚧 Known limitations
 
 - Start-on-boot is systemd-only.
-- The release workflow builds x86_64 and aarch64 tarballs; `.deb` coverage
-  remains x86_64-focused.
+- The release workflow ships static tarballs for x86_64, i686, aarch64, and
+  armv7; `.deb` coverage remains x86_64-focused.
 - Editing uses an external editor by design.
 - Terminal QR codes can be large.
 - OSC 52 copy depends on terminal support.

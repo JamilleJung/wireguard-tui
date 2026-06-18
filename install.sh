@@ -284,10 +284,26 @@ ok "Files installed."
 # Authorisation: sudoers drop-in (default) or polkit rule
 # ---------------------------------------------------------------------------
 if [ "$AUTH_MODE" = "polkit" ]; then
-    say "Installing polkit rule (passwordless for active local sessions)"
+    say "Installing polkit rule (passwordless for the 'wireguard' group)"
+    # Gate the root helper on a dedicated group so it is NOT exposed to every
+    # active-local user (who could otherwise read another user's private keys
+    # via the helper's read/showconf/dump verbs).
+    as_root groupadd -f wireguard 2>/dev/null \
+        || as_root addgroup wireguard 2>/dev/null || true
+    if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ] \
+            && printf '%s' "$REAL_USER" | grep -qE '^[a-zA-Z_][a-zA-Z0-9_-]*$' \
+            && id "$REAL_USER" >/dev/null 2>&1; then
+        as_root usermod -aG wireguard "$REAL_USER" 2>/dev/null \
+            || as_root gpasswd -a "$REAL_USER" wireguard 2>/dev/null \
+            || as_root adduser "$REAL_USER" wireguard 2>/dev/null || true
+        ok "Added $REAL_USER to the 'wireguard' group (log out and back in for it to take effect)."
+    else
+        warn "Couldn't add a user to the 'wireguard' group automatically."
+        warn "Add yours with: sudo usermod -aG wireguard <your-username>  (then re-login)."
+    fi
     as_root install -d /etc/polkit-1/rules.d
     as_root install -m644 "$HERE/packaging/49-wireguard-tui.rules" "$POLKIT_RULE"
-    ok "polkit rule installed."
+    ok "polkit rule installed at $POLKIT_RULE (limited to the 'wireguard' group)."
 elif [ -z "$REAL_USER" ] || [ "$REAL_USER" = "root" ]; then
     warn "Couldn't determine the invoking user - skipping the passwordless drop-in."
     warn "Run wg-tui as root, re-run as that user, or pass WG_REAL_USER=<name>."

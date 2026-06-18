@@ -6,6 +6,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.6] - 2026-06-18
+
+### Added
+- **Static binaries for every common Linux CPU**: the release now ships
+  `x86_64`, `i686` (32-bit), `aarch64` (64-bit ARM), and `armv7` (32-bit ARM)
+  musl tarballs - fully static, no glibc version to match.
+
+### Security
+- The privileged helper now **refuses to save or rename any config containing
+  `PostUp`/`PreUp`/`PostDown`/`PreDown` script hooks**. Previously a user holding
+  the passwordless helper grant (or someone who handed the victim a crafted
+  `.conf`) could obtain arbitrary root code execution, since `wg-quick` runs
+  those hooks as root on activation. (CWE-78 / CWE-269)
+- The **polkit rule now requires membership in a dedicated `wireguard` group**
+  instead of authorizing every active-local user, closing a path where another
+  local user could read your private keys through the helper. `install.sh
+  --polkit` and the `.deb` create the group and add the intended user.
+  (CWE-200 / CWE-522)
+- `redact_config` now matches the helper's stricter redactor so a secret-bearing
+  log line without an `=` can no longer slip through. (CWE-532)
+
+### CI / supply chain
+- Release **signing is fail-closed**: a missing `MINISIGN_KEY` aborts the
+  release instead of publishing unsigned artifacts.
+- Workflow tokens are **least-privilege**: read-only everywhere except the single
+  publish job; CI declares `contents: read`.
+- `cargo-deb` is pinned to an exact version (`=2.12.1`); the first-party
+  `upload-/download-artifact` actions are pinned to commit SHAs.
+- The release tag is passed via the environment and validated against
+  `vMAJOR.MINOR.PATCH` (no Actions expression-injection into shell steps).
+- CI runs `cargo audit` (RUSTSEC), and Dependabot watches the cargo and
+  github-actions ecosystems.
+
+### Changed
+- `SECURITY.md` and `README.md` updated to document the new posture.
+
 ## [1.6.5] - 2026-06-18
 
 ### Security

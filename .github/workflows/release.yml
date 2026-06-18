@@ -7,69 +7,85 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Least privilege: the token is read-only everywhere except the publish job.
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  arm64-tarball:
-    name: Build aarch64 tarball
-    runs-on: ubuntu-24.04-arm
+  # ---- static musl binaries for every supported CPU (32- and 64-bit) ----
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, arch: x86_64 }
+          - { target: i686-unknown-linux-musl, arch: i686 }
+          - { target: aarch64-unknown-linux-musl, arch: aarch64 }
+          - { target: armv7-unknown-linux-musleabihf, arch: armv7 }
+    env:
+      # Link every musl target with the toolchain's own cross-linker (rust-lld),
+      # so a fully static binary is produced for all CPUs without Docker/QEMU or
+      # an external cross-gcc — and using the host's modern stable Rust.
+      RUSTFLAGS: "-C linker=rust-lld"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Version from tag
-        id: ver
-        run: echo "v=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Validate tag format
+        run: |
+          echo "$GITHUB_REF_NAME" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::tag '$GITHUB_REF_NAME' is not vMAJOR.MINOR.PATCH"; exit 1; }
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ matrix.target }}
 
-      - name: Build release binary
-        run: cargo build --release
+      - name: Build static binaries (musl)
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
-      - name: cargo test
-        run: cargo test
-
-      - name: Smoke helper and CLI
+      - name: Stage tarball
+        env:
+          REF: ${{ github.ref_name }}
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
         run: |
-          ./target/release/wg-tui --version | grep -q '^wg-tui '
-          ./target/release/wg-tui --help >/dev/null
-          bash tests/helper-validation.sh target/release/wg-helper
-
-      - name: Build aarch64 tarball
-        run: |
-          V="${{ steps.ver.outputs.v }}"
-          D="wireguard-tui-${V}-aarch64-linux"
+          V="${REF#v}"
+          D="wireguard-tui-${V}-${ARCH}-linux"
           mkdir -p "$D"
-          cp target/release/wg-tui "$D/"
-          cp target/release/wg-helper "$D/"
+          cp "target/${TARGET}/release/wg-tui" "$D/"
+          cp "target/${TARGET}/release/wg-helper" "$D/"
           cp packaging/49-wireguard-tui.rules "$D/"
           cp install.sh README.md LICENSE "$D/"
           tar -czf "${D}.tar.gz" "$D"
+          test -s "${D}.tar.gz"
 
-      - name: Upload aarch64 tarball
-        uses: actions/upload-artifact@v4
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: wireguard-tui-aarch64-tarball
-          path: wireguard-tui-*-aarch64-linux.tar.gz
+          name: tarball-${{ matrix.arch }}
+          path: wireguard-tui-*-${{ matrix.arch }}-linux.tar.gz
           if-no-files-found: error
 
-  release:
-    name: Build artifacts & publish release
-    needs: arm64-tarball
+  # ---- native x86_64 build: full test suite + shell checks + .deb ----
+  deb:
+    name: Test & build .deb (amd64)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Version from tag
-        id: ver
-        run: echo "v=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -77,11 +93,10 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - name: Build release binary
-        run: cargo build --release
-
-      - name: cargo test
-        run: cargo test
+      - name: Build + test
+        run: |
+          cargo build --release --locked
+          cargo test --locked
 
       - name: Smoke and shell validation
         run: |
@@ -92,40 +107,49 @@ jobs:
           out="$(./target/release/wg-tui doctor)" && rc=0 || rc=$?
           echo "$out" | grep -q 'WireGuard tools'
           test "$rc" -le 2
-          bash -n install.sh
-          bash -n tests/helper-validation.sh
-          bash -n tests/installer-sanity.sh
+          bash -n install.sh tests/helper-validation.sh tests/installer-sanity.sh
           shellcheck -S warning install.sh tests/helper-validation.sh tests/installer-sanity.sh
           bash tests/helper-validation.sh target/release/wg-helper
           bash tests/installer-sanity.sh
 
-      # ---------------- binary tarball ----------------
-      - name: Build binary tarball
-        run: |
-          V="${{ steps.ver.outputs.v }}"
-          D="wireguard-tui-${V}-x86_64-linux"
-          mkdir -p "$D"
-          cp target/release/wg-tui "$D/"
-          cp target/release/wg-helper "$D/"
-          cp packaging/49-wireguard-tui.rules "$D/"
-          cp install.sh README.md LICENSE "$D/"
-          tar -czf "${D}.tar.gz" "$D"
-
-      - name: Download aarch64 tarball
-        uses: actions/download-artifact@v4
-        with:
-          name: wireguard-tui-aarch64-tarball
-          path: .
-
-      # ---------------- .deb ----------------
       - name: Build .deb
         run: |
-          cargo install cargo-deb --version '^2' --locked
+          cargo install cargo-deb --version =2.12.1 --locked
           cargo deb --no-build --no-strip || cargo deb
           cp target/debian/*.deb .   # mandatory: fail the release if none exists
 
-      # ---------------- checksums ----------------
+      - name: Upload .deb
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deb-amd64
+          path: "*.deb"
+          if-no-files-found: error
+
+  # ---- collect, checksum, SIGN (fail-closed), publish ----
+  release:
+    name: Publish release
+    needs: [build, deb]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # elevated ONLY for the publishing job
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p out
+          find dist -type f \( -name '*.tar.gz' -o -name '*.deb' \) -exec cp -v {} out/ \;
+          cp minisign.pub out/
+          ls -l out
+
       - name: Generate checksums
+        working-directory: out
         run: |
           shopt -s nullglob
           artifacts=( *.tar.gz *.deb )
@@ -135,30 +159,32 @@ jobs:
           sha256sum "${artifacts[@]}" | tee SHA256SUMS
           test -s SHA256SUMS
 
-      # ---------------- sign the checksums (minisign) ----------------
-      - name: Sign SHA256SUMS with minisign
+      - name: Sign SHA256SUMS with minisign (fail-closed)
+        working-directory: out
         env:
           MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
+          REF: ${{ github.ref_name }}
         run: |
           if [ -z "$MINISIGN_KEY" ]; then
-            echo "::warning::MINISIGN_KEY secret not set — skipping signature"
-            exit 0
+            echo "::error::MINISIGN_KEY secret not set — refusing to publish an unsigned release"
+            exit 1
           fi
           sudo apt-get update && sudo apt-get install -y --no-install-recommends minisign
           printf '%s\n' "$MINISIGN_KEY" > minisign.key
-          minisign -S -s minisign.key -m SHA256SUMS \
-            -t "wireguard-tui ${{ steps.ver.outputs.v }}"
+          minisign -S -s minisign.key -m SHA256SUMS -t "wireguard-tui ${REF#v}"
           rm -f minisign.key
           echo "Verifying signature with the committed public key…"
           minisign -Vm SHA256SUMS -p minisign.pub
+          test -s SHA256SUMS.minisig
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
-            *.tar.gz
-            *.deb
-            SHA256SUMS
-            SHA256SUMS.minisig
-            minisign.pub
+            out/*.tar.gz
+            out/*.deb
+            out/SHA256SUMS
+            out/SHA256SUMS.minisig
+            out/minisign.pub
