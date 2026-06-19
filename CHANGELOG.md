@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.8] - 2026-06-19
+
+### Dependencies
+- Refreshed all dependencies to their latest releases: `ratatui` 0.29 → 0.30,
+  `crossterm` 0.28 → 0.29, and `zip` 4 → 8. No source changes were required;
+  `cargo build --release`, Clippy, and all tests remain green.
+
+### CI / supply chain
+- Bumped the pinned GitHub Actions to current: `actions/checkout` v6 → v7,
+  `actions/upload-artifact` v4 → v7, `actions/download-artifact` v4 → v8.
+
 ## [1.6.7] - 2026-06-18
 
 ### CI / supply chain
