@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.10] - 2026-06-19
+
+### Size
+- **`zip` uses `deflate-flate2` instead of the `deflate` meta-feature**, dropping
+  the Zopfli encoder — ~120 KB off the static binary pre-UPX (~8% on this small
+  binary). Exported archives are still standard DEFLATE `.zip`; only the
+  compressor changes.
+- **`[profile.release] opt-level` switched `"z"` → `"s"`** — measured a few KB
+  smaller for this binary (the GUI stays on `"z"`, which is smaller there). No
+  behavior change.
+  All tests pass; runtime behavior is identical.
+
 ## [1.6.9] - 2026-06-19
 
 ### Performance

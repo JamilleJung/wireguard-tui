@@ -1,6 +1,6 @@
 [package]
 name = "wireguard-tui"
-version = "1.6.9"
+version = "1.6.10"
 edition = "2024"
 description = "A native Linux terminal UI for managing plain WireGuard tunnels with wg and wg-quick."
 license = "MIT"
@@ -20,13 +20,13 @@ path = "src/bin/wg-helper.rs"
 ratatui = "0.30"
 crossterm = "0.29"
 libc = "0.2"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate-flate2"] }
 qrcode = { version = "0.14", default-features = false }
 rqrr = "0.10"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [profile.release]
-opt-level = "z"
+opt-level = "s"
 lto = true
 strip = true
 codegen-units = 1
