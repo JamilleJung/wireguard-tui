@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.11] - 2026-06-20
+
+### Added
+- **About screen** (press `A`): app name, version, GitHub and support links, and
+  license — parity with the GUI's About window. Any key closes it; the key is
+  listed in the footer hints and the `?` help.
+
 ## [1.6.10] - 2026-06-19
 
 ### Size

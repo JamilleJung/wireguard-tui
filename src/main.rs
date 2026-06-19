@@ -54,6 +54,8 @@ struct Snapshot {
 enum Mode {
     Normal,
     Help,
+    /// The About box: app name, version, links, license (any key closes it).
+    About,
     /// A transient info/error box (any key closes it).
     Message(String),
     /// A pre-rendered QR code (any key closes it).
@@ -629,7 +631,7 @@ fn handle_key(
 
     // Modal popups consume keys first.
     match &mut app.mode {
-        Mode::Help | Mode::Message(_) | Mode::Qr(_) => {
+        Mode::Help | Mode::About | Mode::Message(_) | Mode::Qr(_) => {
             app.mode = Mode::Normal;
             return Ok(());
         }
@@ -876,6 +878,7 @@ fn handle_key(
             app.flash("Refreshed");
         }
         KeyCode::Char('?') => app.mode = Mode::Help,
+        KeyCode::Char('A') => app.mode = Mode::About,
         _ => {}
     }
     Ok(())
@@ -1450,10 +1453,10 @@ fn ui(f: &mut Frame, app: &mut App) {
     // actions; Advanced shows everything (with a compact fallback on narrow
     // terminals). Both keep ? help / q quit visible.
     let hint = if app.easy {
-        " Up/Dn move  Enter/a connect/disconnect  n new  i import  s on-boot  d remove  Q qr  y copy-key  Tab log  m advanced  ? help  q quit"
+        " Up/Dn move  Enter/a connect/disconnect  n new  i import  s on-boot  d remove  Q qr  y copy-key  Tab log  m advanced  A about  ? help  q quit"
     } else {
-        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  K kill  + add-peer  p save-live  Q qr  x export  Tab log  m easy  ? help  q quit";
-        let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  y copy-key  d del  Q qr  Tab log  m easy  ? help  q quit";
+        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  K kill  + add-peer  p save-live  Q qr  x export  Tab log  m easy  A about  ? help  q quit";
+        let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  y copy-key  d del  Q qr  Tab log  m easy  A about  ? help  q quit";
         if full.chars().count() as u16 <= chunks[2].width {
             full
         } else {
@@ -1476,6 +1479,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     // Popups.
     match &app.mode {
         Mode::Help => render_help(f),
+        Mode::About => render_about(f),
         Mode::Message(m) => render_message(f, "Notice", m),
         Mode::ConfirmDelete(name) => render_message(
             f,
@@ -1779,6 +1783,7 @@ fn render_help(f: &mut Frame) {
   e edit in $EDITOR   g generate keys   c show running config   + quick-add peer
   K kill switch       p save live state   R rename   x export all tunnels
 
+  A              About wg-tui (version, links, license)
   ?              This help    q / Esc   Quit";
     let area = popup_area(f.area(), 70, 23);
     f.render_widget(Clear, area);
@@ -1787,6 +1792,30 @@ fn render_help(f: &mut Frame) {
         env!("CARGO_PKG_VERSION")
     );
     let p = Paragraph::new(help).block(Block::default().borders(Borders::ALL).title(title));
+    f.render_widget(p, area);
+}
+
+fn render_about(f: &mut Frame) {
+    let about = format!(
+        "\n\
+         \x20   WireGuard TUI  \u{b7}  v{}\n\
+         \n\
+         \x20 A native Linux terminal UI for plain WireGuard configs,\n\
+         \x20 wg, wg-quick, and a small privileged helper.\n\
+         \n\
+         \x20 GitHub     https://github.com/JamilleJung/wireguard-tui\n\
+         \x20 Support    https://www.buymeacoffee.com/jamillejung\n\
+         \n\
+         \x20 MIT License  \u{b7}  Built with Rust + ratatui",
+        env!("CARGO_PKG_VERSION")
+    );
+    let area = popup_area(f.area(), 62, 13);
+    f.render_widget(Clear, area);
+    let p = Paragraph::new(about).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" About (press any key to close) "),
+    );
     f.render_widget(p, area);
 }
 
