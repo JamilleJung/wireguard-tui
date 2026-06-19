@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.13] - 2026-06-20
+
+### Fixed
+- **The `.deb` now installs with `apt` on current Debian/Ubuntu.** The dependency
+  `polkit-1 | policykit-1` was unsatisfiable on systems where polkit was renamed
+  to `polkitd` + `pkexec` (e.g. recent Ubuntu), so `apt install ./…deb` failed
+  with "polkit-1 but it is not installable". It is now
+  `pkexec | polkit-1 | policykit-1`, which resolves on both new and old systems
+  (`pkexec` pulls `polkitd`).
+
 ## [1.6.12] - 2026-06-20
 
 ### Changed
