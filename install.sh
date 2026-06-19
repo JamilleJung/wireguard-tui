@@ -37,7 +37,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # ---------------------------------------------------------------------------
 # Args
 # ---------------------------------------------------------------------------
-ACTION="install"; AUTH_MODE="sudoers"; INSTALL_DESKTOP=0
+ACTION="install"; AUTH_MODE="sudoers"; INSTALL_DESKTOP=0; ALLOW_ROOT="${WG_ALLOW_ROOT:-0}"
 for arg in "$@"; do
     case "$arg" in
         uninstall)  ACTION="uninstall" ;;
@@ -45,6 +45,7 @@ for arg in "$@"; do
         --sudoers)  AUTH_MODE="sudoers" ;;
         --desktop)  INSTALL_DESKTOP=1 ;;
         --no-desktop) INSTALL_DESKTOP=0 ;;
+        --allow-root) ALLOW_ROOT=1 ;;
         *) ;;
     esac
 done
@@ -104,6 +105,28 @@ elif [ "$CAN_SUDO" -eq 1 ]; then
     REAL_USER="${INVOKER:-$USER}"
 else
     die "Need root. Re-run as root ('su -' then ./install.sh), or install 'su'/'sudo'."
+fi
+
+# Installing straight from a root login (no normal user behind us) is discouraged:
+# the Rust toolchain + build would run as root in /root, and the per-user
+# passwordless helper grant has no one to target. Recommend a normal user, but
+# let an operator override deliberately with --allow-root (or WG_ALLOW_ROOT=1).
+if [ "$ACTION" = "install" ] && [ "$(id -u)" -eq 0 ] && [ "$REAL_USER" = "root" ]; then
+    if [ "$ALLOW_ROOT" != "1" ]; then
+        printf '\n'
+        warn "Running as root with no normal user detected."
+        printf "  ${C}Recommended${N}: run the installer as your normal user —\n"
+        printf "      su - <youruser>\n      ./install.sh\n\n"
+        printf "  Rust builds with a per-user toolchain and the passwordless helper\n"
+        printf "  grant is per-user, so a root install gets neither.\n\n"
+        printf "  To install system-wide as root anyway (you accept the risk: the\n"
+        printf "  build runs as root or an existing prebuilt binary is reused, and\n"
+        printf "  the app runs with direct privilege so it needs no helper grant):\n"
+        printf "      ${B}./install.sh --allow-root${N}\n\n"
+        die "Aborted — re-run as a normal user, or pass --allow-root."
+    fi
+    warn "Installing as root (--allow-root): the build runs as root or reuses a"
+    warn "prebuilt binary, and the per-user helper grant is skipped (root needs none)."
 fi
 
 # Run a command as the invoking (non-root) user - used for the BUILD so cargo and
@@ -179,6 +202,13 @@ install_pkgs() {
 # as_user - never as root, so build scripts/proc-macros don't run with privilege
 # and the toolchain + artifacts land in that user's home, not /root).
 build_app() {
+    # A root install (--allow-root) must not drop a Rust toolchain into /root or
+    # run build scripts as root: reuse an existing prebuilt binary when present.
+    if [ "$(id -u)" -eq 0 ] && [ "$REAL_USER" = "root" ] \
+            && [ -f "$HERE/target/release/wg-tui" ]; then
+        ok "Using the existing prebuilt binary (skipping the build as root)."
+        return 0
+    fi
     say "Building release binary (first build downloads crates, ~1-2 min)"
     # Look up the build user's home safely (no eval on the name) so cargo/rustup
     # land there regardless of how runuser/su set the environment.
@@ -205,6 +235,12 @@ BUILD
 
 # Verify the toolchain is actually usable (minimal installs often lack a linker).
 verify_build_deps() {
+    # When a root install will reuse the prebuilt binary, there is nothing to
+    # build, so don't fail on a missing compiler/headers.
+    if [ "$(id -u)" -eq 0 ] && [ "$REAL_USER" = "root" ] \
+            && [ -f "$HERE/target/release/wg-tui" ]; then
+        return 0
+    fi
     say "Checking the build toolchain"
     if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1; then
         die "No C compiler (cc/gcc) found — install one (e.g. build-essential / base-devel) and re-run."
