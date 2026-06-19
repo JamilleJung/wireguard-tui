@@ -63,6 +63,22 @@ jobs:
       - name: Build static binaries (musl, with embedded SBOM)
         run: cargo auditable build --release --locked --target ${{ matrix.target }}
 
+      # Shrink the shipped static binaries (~60% smaller on disk). UPX packs all
+      # of these target arches cross-arch from the x86_64 runner; the resulting
+      # x86_64 binary is re-smoked here (the others cannot run on this host).
+      - name: Compress binaries with UPX
+        env:
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends upx-ucl
+          upx --best --lzma "target/${TARGET}/release/wg-tui" "target/${TARGET}/release/wg-helper"
+          if [ "$ARCH" = "x86_64" ]; then
+            "target/${TARGET}/release/wg-tui" --version | grep -q '^wg-tui '
+            "target/${TARGET}/release/wg-tui" --help >/dev/null
+          fi
+
       - name: Stage tarball
         env:
           REF: ${{ github.ref_name }}
@@ -122,6 +138,15 @@ jobs:
           shellcheck -S warning install.sh tests/helper-validation.sh tests/installer-sanity.sh
           bash tests/helper-validation.sh target/release/wg-helper
           bash tests/installer-sanity.sh
+
+      # Shrink the shipped binaries before packaging the .deb (~60% smaller on
+      # disk). Re-smoked so a broken pack fails the release rather than shipping.
+      - name: Compress binaries with UPX
+        run: |
+          sudo apt-get install -y --no-install-recommends upx-ucl
+          upx --best --lzma target/release/wg-tui target/release/wg-helper
+          ./target/release/wg-tui --version | grep -q '^wg-tui '
+          ./target/release/wg-tui --help >/dev/null
 
       - name: Build .deb
         run: |

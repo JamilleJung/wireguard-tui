@@ -1,6 +1,6 @@
 [package]
 name = "wireguard-tui"
-version = "1.6.8"
+version = "1.6.9"
 edition = "2024"
 description = "A native Linux terminal UI for managing plain WireGuard tunnels with wg and wg-quick."
 license = "MIT"
@@ -30,6 +30,7 @@ opt-level = "z"
 lto = true
 strip = true
 codegen-units = 1
+panic = "abort"
 
 # `cargo deb` packaging — installs to /usr and uses the polkit rule for auth.
 [package.metadata.deb]
