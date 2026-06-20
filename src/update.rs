@@ -170,7 +170,8 @@ pub fn download_and_verify() -> Result<PathBuf, String> {
     let base = format!("https://github.com/{OWNER}/{REPO}/releases/download/v{version}");
 
     // A throwaway work dir under TMPDIR, owned by us.
-    let workdir = std::env::temp_dir().join(format!("wg-tui-update-{version}-{}", std::process::id()));
+    let workdir =
+        std::env::temp_dir().join(format!("wg-tui-update-{version}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&workdir);
     std::fs::create_dir_all(&workdir).map_err(|e| format!("temp dir: {e}"))?;
 
@@ -328,9 +329,8 @@ fn try_install_minisign() {
 
 /// True if `prog` is on PATH (cheap, no shell).
 fn which(prog: &str) -> bool {
-    std::env::var_os("PATH").is_some_and(|paths| {
-        std::env::split_paths(&paths).any(|p| p.join(prog).is_file())
-    })
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|p| p.join(prog).is_file()))
 }
 
 // ---------------------------------------------------------------------------
@@ -409,7 +409,10 @@ mod tests {
 
     #[test]
     fn extract_json_string_missing_key() {
-        assert_eq!(extract_json_string(r#"{"name":"v1.0.0"}"#, "tag_name"), None);
+        assert_eq!(
+            extract_json_string(r#"{"name":"v1.0.0"}"#, "tag_name"),
+            None
+        );
     }
 
     #[test]
@@ -434,7 +437,10 @@ mod tests {
 
     #[test]
     fn is_newer_compares_triples() {
-        assert_eq!(is_newer("0.0.1"), Some(super::parse("0.0.1") > super::parse(super::CURRENT)));
+        assert_eq!(
+            is_newer("0.0.1"),
+            Some(super::parse("0.0.1") > super::parse(super::CURRENT))
+        );
         // A clearly-old version is never newer than the compiled-in one.
         assert_eq!(is_newer("0.0.0"), Some(false));
         // Unparseable remote -> None (never offers an update).

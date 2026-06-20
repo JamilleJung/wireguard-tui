@@ -40,9 +40,8 @@ pub fn copy_text(text: &str) -> &'static str {
 
 /// True if `prog` is on PATH (cheap, no shell).
 fn which(prog: &str) -> bool {
-    std::env::var_os("PATH").is_some_and(|paths| {
-        std::env::split_paths(&paths).any(|p| p.join(prog).is_file())
-    })
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|p| p.join(prog).is_file()))
 }
 
 /// Spawn `prog args`, write `text` to its stdin, wait. True on clean exit.
@@ -57,12 +56,13 @@ fn pipe_to(prog: &str, args: &[&str], text: &str) -> bool {
         Ok(c) => c,
         Err(_) => return false,
     };
-    if let Some(mut stdin) = child.stdin.take() {
-        if stdin.write_all(text.as_bytes()).is_err() {
-            return false;
-        }
-        // Drop stdin to signal EOF (wl-copy/xclip block until then).
+    if let Some(mut stdin) = child.stdin.take()
+        && stdin.write_all(text.as_bytes()).is_err()
+    {
+        return false;
     }
+    // stdin (if any) is dropped above, signalling EOF so wl-copy/xclip stop
+    // reading and serve the selection.
     child.wait().map(|s| s.success()).unwrap_or(false)
 }
 
