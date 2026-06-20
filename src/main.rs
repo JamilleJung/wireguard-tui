@@ -81,6 +81,17 @@ enum Mode {
         sel: usize,
         marked: std::collections::HashSet<PathBuf>,
     },
+    /// Backup manager: list of archives + a selection cursor.
+    Backup {
+        items: Vec<backend::BackupInfo>,
+        sel: usize,
+    },
+    /// Confirm restoring every tunnel from the named backup.
+    ConfirmRestore(PathBuf),
+    /// Confirm deleting the named backup archive.
+    ConfirmBackupDelete(PathBuf),
+    /// Text entry for a live Log-tab filter (substring match).
+    LogFilter(String),
 }
 
 struct App {
@@ -90,6 +101,12 @@ struct App {
     tab: usize, // 0 = Tunnels, 1 = Log
     log: String,
     log_scroll: u16,
+    /// Auto-scroll the Log tab to the newest line on every refresh.
+    log_follow: bool,
+    /// Case-insensitive substring filter applied to the Log tab.
+    log_filter: String,
+    /// Show only Log lines that mention the selected tunnel.
+    log_only_selected: bool,
     status: String,
     status_at: Option<Instant>,
     mode: Mode,
@@ -115,6 +132,9 @@ impl App {
             tab: 0,
             log: String::new(),
             log_scroll: 0,
+            log_follow: true,
+            log_filter: String::new(),
+            log_only_selected: false,
             status: String::new(),
             status_at: None,
             mode: Mode::Normal,
@@ -799,11 +819,125 @@ fn handle_key(
             }
             return Ok(());
         }
+        Mode::Backup { items, sel } => {
+            // Navigation stays inside the borrow; actions clone first, then act.
+            match code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    *sel = sel.saturating_sub(1);
+                    return Ok(());
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if *sel + 1 < items.len() {
+                        *sel += 1;
+                    }
+                    return Ok(());
+                }
+                KeyCode::Home | KeyCode::Char('g') => {
+                    *sel = 0;
+                    return Ok(());
+                }
+                KeyCode::End | KeyCode::Char('G') => {
+                    *sel = items.len().saturating_sub(1);
+                    return Ok(());
+                }
+                _ => {}
+            }
+            let selected = items.get(*sel).map(|b| (b.path.clone(), b.name.clone()));
+            match code {
+                KeyCode::Esc | KeyCode::Char('q') => app.mode = Mode::Normal,
+                KeyCode::Char('n') => match backend::create_backup() {
+                    Ok(info) => {
+                        app.flash(format!(
+                            "Backed up {} tunnel(s) -> {}",
+                            info.count, info.name
+                        ));
+                        app.mode = Mode::Backup {
+                            items: backend::list_backups(),
+                            sel: 0,
+                        };
+                    }
+                    Err(e) => app.mode = Mode::Message(format!("Backup failed:\n{e}")),
+                },
+                KeyCode::Enter | KeyCode::Char('r') => {
+                    if let Some((path, _)) = selected {
+                        app.mode = Mode::ConfirmRestore(path);
+                    }
+                }
+                KeyCode::Char('d') => {
+                    if let Some((path, _)) = selected {
+                        app.mode = Mode::ConfirmBackupDelete(path);
+                    }
+                }
+                KeyCode::Char('x') => {
+                    if let Some((path, name)) = selected {
+                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+                        let dest = std::path::Path::new(&home).join(&name);
+                        match backend::export_backup_to(&path, &dest) {
+                            Ok(()) => app.flash(format!("Exported to {}", dest.display())),
+                            Err(e) => app.flash(format!("Export failed: {e}")),
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+        Mode::ConfirmRestore(path) => {
+            let path = path.clone();
+            match code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    app.mode = Mode::Normal;
+                    flash_now(app, terminal, "Restoring backup...".to_string())?;
+                    match backend::restore_backup(&path) {
+                        Ok(n) => app.flash(format!("Restored {n} tunnel(s) from backup")),
+                        Err(e) => app.flash(format!("Restore failed: {e}")),
+                    }
+                    app.reload();
+                }
+                _ => {
+                    app.mode = Mode::Normal;
+                    app.flash("Restore cancelled");
+                }
+            }
+            return Ok(());
+        }
+        Mode::ConfirmBackupDelete(path) => {
+            let path = path.clone();
+            match code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => match backend::delete_backup(&path) {
+                    Ok(()) => app.flash("Backup deleted"),
+                    Err(e) => app.flash(format!("Delete failed: {e}")),
+                },
+                _ => app.flash("Delete cancelled"),
+            }
+            app.mode = Mode::Backup {
+                items: backend::list_backups(),
+                sel: 0,
+            };
+            return Ok(());
+        }
+        Mode::LogFilter(buf) => {
+            match code {
+                KeyCode::Esc => app.mode = Mode::Normal,
+                KeyCode::Enter => {
+                    let v = buf.trim().to_string();
+                    app.log_filter = v;
+                    app.mode = Mode::Normal;
+                }
+                KeyCode::Backspace => {
+                    buf.pop();
+                }
+                KeyCode::Char(c) => buf.push(c),
+                _ => {}
+            }
+            return Ok(());
+        }
         Mode::Normal => {}
     }
 
-    // Easy mode hides expert actions; tell the user how to reach them.
-    if app.easy && is_advanced_key(code) {
+    // Easy mode hides expert actions on the Tunnels tab; the Log tab's own keys
+    // (filter/follow/clear/save) are always available.
+    if app.easy && app.tab == 0 && is_advanced_key(code) {
         app.flash("Advanced action - press 'm' to switch to Advanced mode");
         return Ok(());
     }
@@ -836,6 +970,7 @@ fn handle_key(
         }
         KeyCode::Down | KeyCode::Char('j') => {
             if app.tab == 1 {
+                app.log_follow = false;
                 app.log_scroll = app.log_scroll.saturating_add(1);
             } else {
                 app.move_selection(1);
@@ -843,10 +978,55 @@ fn handle_key(
         }
         KeyCode::Up | KeyCode::Char('k') => {
             if app.tab == 1 {
+                app.log_follow = false;
                 app.log_scroll = app.log_scroll.saturating_sub(1);
             } else {
                 app.move_selection(-1);
             }
+        }
+        // ---- Log-tab management (only while the Log tab is open) ----
+        KeyCode::PageDown if app.tab == 1 => {
+            app.log_follow = false;
+            app.log_scroll = app.log_scroll.saturating_add(10);
+        }
+        KeyCode::PageUp if app.tab == 1 => {
+            app.log_follow = false;
+            app.log_scroll = app.log_scroll.saturating_sub(10);
+        }
+        KeyCode::Home if app.tab == 1 => {
+            app.log_follow = false;
+            app.log_scroll = 0;
+        }
+        KeyCode::End if app.tab == 1 => app.log_follow = true,
+        KeyCode::Char('f') if app.tab == 1 => {
+            app.log_follow = !app.log_follow;
+            app.flash(if app.log_follow {
+                "Log: following newest"
+            } else {
+                "Log: paused (End to follow again)"
+            });
+        }
+        KeyCode::Char('t') if app.tab == 1 => {
+            app.log_only_selected = !app.log_only_selected;
+            app.flash(if app.log_only_selected {
+                "Log: showing the selected tunnel only"
+            } else {
+                "Log: showing all entries"
+            });
+        }
+        KeyCode::Char('/') if app.tab == 1 => app.mode = Mode::LogFilter(app.log_filter.clone()),
+        KeyCode::Char('w') if app.tab == 1 => save_log(app),
+        KeyCode::Char('c') if app.tab == 1 => {
+            app.log = "(cleared — press r to reload from the journal)".into();
+            app.log_scroll = 0;
+            app.log_follow = false;
+        }
+        // Backup manager (works from either tab).
+        KeyCode::Char('B') => {
+            app.mode = Mode::Backup {
+                items: backend::list_backups(),
+                sel: 0,
+            };
         }
         KeyCode::Enter | KeyCode::Char('a') => toggle_active(app, terminal)?,
         KeyCode::Char('e') => edit_tunnel(app, terminal)?,
@@ -1452,11 +1632,20 @@ fn ui(f: &mut Frame, app: &mut App) {
     // Footer: status if set, else key hints. Easy mode shows only the everyday
     // actions; Advanced shows everything (with a compact fallback on narrow
     // terminals). Both keep ? help / q quit visible.
-    let hint = if app.easy {
-        " Up/Dn move  Enter/a connect/disconnect  n new  i import  s on-boot  d remove  Q qr  y copy-key  Tab log  m advanced  A about  ? help  q quit"
+    let hint = if app.tab == 1 {
+        // The Log tab has its own keys; show them instead of the tunnel actions.
+        let full = " Up/Dn/PgUp/PgDn scroll  Home top  End/f follow  t this-tunnel  / filter  w save  c clear  r reload  Tab tunnels  B backup  ? help  q quit";
+        let compact = " Up/Dn scroll  f follow  t tunnel  / filter  w save  c clear  r reload  Tab tunnels  B backup  ? help  q quit";
+        if full.chars().count() as u16 <= chunks[2].width {
+            full
+        } else {
+            compact
+        }
+    } else if app.easy {
+        " Up/Dn move  Enter/a on/off  n new  i import  s on-boot  d remove  Q qr  y copy-key  B backup  Tab log  m advanced  A about  ? help  q quit"
     } else {
-        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  K kill  + add-peer  p save-live  Q qr  x export  Tab log  m easy  A about  ? help  q quit";
-        let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  y copy-key  d del  Q qr  Tab log  m easy  A about  ? help  q quit";
+        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  K kill  + add-peer  p save-live  Q qr  x export  B backup  Tab log  m easy  A about  ? help  q quit";
+        let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  d del  Q qr  B backup  Tab log  m easy  ? help  q quit";
         if full.chars().count() as u16 <= chunks[2].width {
             full
         } else {
@@ -1507,6 +1696,28 @@ fn ui(f: &mut Frame, app: &mut App) {
             marked,
         } => render_browse(f, dir, entries, *sel, marked),
         Mode::Qr(lines) => render_qr(f, lines),
+        Mode::Backup { items, sel } => render_backup(f, items, *sel),
+        Mode::ConfirmRestore(path) => render_message(
+            f,
+            "Confirm restore",
+            &format!(
+                "Restore all tunnels from\n  {}\n\nExisting tunnels with the same name are overwritten.\n\n[y] yes    [n] no",
+                path.file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            ),
+        ),
+        Mode::ConfirmBackupDelete(path) => render_message(
+            f,
+            "Delete backup",
+            &format!(
+                "Delete the backup\n  {}\n\n[y] yes    [n] no",
+                path.file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            ),
+        ),
+        Mode::LogFilter(buf) => render_input(f, "Filter log (substring)", buf),
         Mode::Normal => {}
     }
 }
@@ -1714,13 +1925,124 @@ fn fmt_ago(s: u64) -> String {
     }
 }
 
-fn render_log(f: &mut Frame, app: &App, area: Rect) {
-    let p = Paragraph::new(app.log.clone())
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Log  (Up/Dn scroll) "),
-        )
+/// Write the full (unfiltered) log to a file in $HOME.
+fn save_log(app: &mut App) {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let dest = std::path::Path::new(&home).join("wireguard-tui-log.txt");
+    match backend::save_text_to(&dest, &app.log) {
+        Ok(()) => app.flash(format!("Log saved to {}", dest.display())),
+        Err(e) => app.flash(format!("Save failed: {e}")),
+    }
+}
+
+/// The backup manager popup: one archive per row (date, size, tunnel count,
+/// name), with the selection highlighted.
+fn render_backup(f: &mut Frame, items: &[backend::BackupInfo], sel: usize) {
+    let area = popup_area(f.area(), 80, 22);
+    f.render_widget(Clear, area);
+    let view = area.height.saturating_sub(2) as usize;
+    let mut lines: Vec<Line> = Vec::new();
+    if items.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from("  No backups yet."));
+        lines.push(Line::from(""));
+        lines.push(Line::styled(
+            "  Press  n  to create your first backup of every tunnel config.",
+            Style::default().fg(Color::Cyan),
+        ));
+    } else {
+        for (i, b) in items.iter().enumerate() {
+            let label = format!(
+                " {}   {:>9}   {:>2} cfg   {}",
+                backend::fmt_time(b.when_secs),
+                backend::fmt_size(b.size),
+                b.count,
+                b.name
+            );
+            let style = if i == sel {
+                Style::default().fg(Color::Black).bg(Color::Cyan).bold()
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            lines.push(Line::styled(label, style));
+        }
+    }
+    let offset = if items.is_empty() || sel < view {
+        0u16
+    } else {
+        (sel + 1 - view) as u16
+    };
+    let title = format!(
+        " Backups ({}) — n new  Enter/r restore  d delete  x export  Esc close ",
+        items.len()
+    );
+    let p = Paragraph::new(lines)
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .scroll((offset, 0));
+    f.render_widget(p, area);
+}
+
+/// Colour a log line by a crude severity guess so problems stand out.
+fn log_line_style(line: &str) -> Style {
+    let l = line.to_ascii_lowercase();
+    if l.contains("error") || l.contains("fail") || l.contains("denied") || l.contains("refused") {
+        Style::default().fg(Color::Red)
+    } else if l.contains("warn") {
+        Style::default().fg(Color::Yellow)
+    } else if l.contains("=====") {
+        Style::default().fg(Color::Cyan).bold()
+    } else if l.contains("activat") || l.contains("enabled") || l.contains(" added") {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::Gray)
+    }
+}
+
+/// The log split into styled lines after the active filters (substring +
+/// this-tunnel) are applied.
+fn filtered_log_lines(app: &App) -> Vec<Line<'static>> {
+    let needle = app.log_filter.to_ascii_lowercase();
+    let only = if app.log_only_selected {
+        app.selected_name()
+    } else {
+        None
+    };
+    app.log
+        .lines()
+        .filter(|line| {
+            (needle.is_empty() || line.to_ascii_lowercase().contains(&needle))
+                && only.as_deref().is_none_or(|n| line.contains(n))
+        })
+        .map(|line| Line::styled(line.to_string(), log_line_style(line)))
+        .collect()
+}
+
+fn render_log(f: &mut Frame, app: &mut App, area: Rect) {
+    let lines = filtered_log_lines(app);
+    let total = lines.len() as u16;
+    let view_h = area.height.saturating_sub(2);
+    let max_scroll = total.saturating_sub(view_h);
+    // Follow pins to the newest line; otherwise keep the cursor in range.
+    app.log_scroll = if app.log_follow {
+        max_scroll
+    } else {
+        app.log_scroll.min(max_scroll)
+    };
+    let mut title = format!(" Log — {total} lines");
+    if !app.log_filter.is_empty() {
+        title.push_str(&format!("  /{}", app.log_filter));
+    }
+    if app.log_only_selected {
+        title.push_str("  [this-tunnel]");
+    }
+    title.push_str(if app.log_follow {
+        "  [follow]"
+    } else {
+        "  [paused]"
+    });
+    title.push(' ');
+    let p = Paragraph::new(lines)
+        .block(Block::default().borders(Borders::ALL).title(title))
         .scroll((app.log_scroll, 0))
         .wrap(Wrap { trim: false });
     f.render_widget(p, area);
@@ -1768,30 +2090,34 @@ fn render_input(f: &mut Frame, title: &str, buf: &str) {
 
 fn render_help(f: &mut Frame) {
     let help = "\
-  Up / k, Dn / j   Move selection (scroll the Log tab)
-  Enter / a      Activate or deactivate the selected tunnel
-  n              Create a new tunnel from scratch
-  i              Import a tunnel (file browser; Space marks many, Enter imports)
-  d              Delete the selected tunnel
-  s              Toggle start-on-boot for the selected tunnel
-  Q              Show the tunnel as a QR code (scan into mobile)
-  y              Copy the interface public key to the clipboard (OSC 52)
-  Tab            Switch between the Tunnels and Log tabs
-  m              Toggle Easy / Advanced mode    r   Refresh now
+  TUNNELS TAB
+  Up/Dn k/j   Move        Enter/a  On / off
+  n  New       i  Import   d  Delete
+  s  On-boot   Q  Show QR  y  Copy pubkey
+  Advanced (m):
+    e edit   g gen-keys  c show-conf  + add-peer
+    K kill   p save-live R rename     x export-all
 
-  Advanced mode also adds:
-  e edit in $EDITOR   g generate keys   c show running config   + quick-add peer
-  K kill switch       p save live state   R rename   x export all tunnels
+  LOG TAB  (press Tab)
+  Up/Dn PgUp/PgDn Home   Scroll
+  End / f  Follow        t  This-tunnel only
+  /  Filter              w  Save to file
+  c  Clear view          r  Reload journal
 
-  A              About wg-tui (version, links, license)
-  ?              This help    q / Esc   Quit";
-    let area = popup_area(f.area(), 70, 23);
+  BACKUP  (press B, from any tab)
+  n  new       Enter/r  restore
+  d  delete    x  export to home   Esc  close
+
+  Tab tabs   m mode   r refresh   A about   q quit";
+    let area = popup_area(f.area(), 56, 24);
     f.render_widget(Clear, area);
     let title = format!(
-        " wg-tui v{} | keys (press any key to close) ",
+        " wg-tui v{} keys (any key closes) ",
         env!("CARGO_PKG_VERSION")
     );
-    let p = Paragraph::new(help).block(Block::default().borders(Borders::ALL).title(title));
+    let p = Paragraph::new(help)
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .wrap(Wrap { trim: false });
     f.render_widget(p, area);
 }
 

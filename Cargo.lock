@@ -1792,7 +1792,7 @@ dependencies = [
 
 [[package]]
 name = "wireguard-tui"
-version = "1.6.13"
+version = "1.7.0"
 dependencies = [
  "crossterm",
  "image",

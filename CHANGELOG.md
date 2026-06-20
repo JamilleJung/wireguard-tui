@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-06-20
+
+### Added
+- **Backup manager** (press **`B`** from any tab): create timestamped archives of
+  every tunnel config, see them listed with date / size / tunnel-count, and
+  **restore** (Enter/`r`), **export** (`x`), or **delete** (`d`) the selected one.
+  Archives are written `0600` under `~/.local/share/wireguard/backups` (shared
+  with wireguard-gui).
+
+### Changed
+- **The Log tab was overhauled**: severity colouring, follow-tail (`f`),
+  this-tunnel-only (`t`), substring filter (`/`), save-to-file (`w`), clear
+  (`c`), reload (`r`), and page scrolling (PgUp/PgDn/Home/End) — with a title
+  bar showing the line count and active modes.
+- **Key hints are complete now.** The footer is **tab-aware** (the Log tab shows
+  its own keys), and the `?` help screen lists *every* key in full (Tunnels /
+  Log / Backup), so no shortcut is hidden — it no longer truncated on the right.
+
 ## [1.6.13] - 2026-06-20
 
 ### Fixed
