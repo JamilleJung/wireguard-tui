@@ -288,6 +288,33 @@ ensure_resolvconf() {
     fi
 }
 
+# A real clipboard tool makes the in-app Copy ('y' / 'Y') reach the system
+# clipboard; without one the app falls back to the OSC 52 terminal escape, which
+# many terminals ignore. Best-effort, non-fatal — OSC 52 still works as fallback.
+ensure_clipboard() {
+    if command -v wl-copy >/dev/null 2>&1 || command -v xclip >/dev/null 2>&1 \
+        || command -v xsel >/dev/null 2>&1; then
+        return 0
+    fi
+    say "Installing a clipboard helper (so Copy reaches the system clipboard)"
+    case "$PM" in
+        apt-get)      as_root apt-get install -y wl-clipboard || as_root apt-get install -y xclip || true ;;
+        dnf|yum)      as_root "$PM" install -y wl-clipboard || as_root "$PM" install -y xclip || true ;;
+        pacman)       as_root pacman -Sy --noconfirm wl-clipboard || as_root pacman -Sy --noconfirm xclip || true ;;
+        zypper)       as_root zypper --non-interactive install wl-clipboard || as_root zypper --non-interactive install xclip || true ;;
+        apk)          as_root apk add wl-clipboard || as_root apk add xclip || true ;;
+        xbps-install) as_root xbps-install -Sy wl-clipboard || as_root xbps-install -Sy xclip || true ;;
+        eopkg)        as_root eopkg install -y wl-clipboard || as_root eopkg install -y xclip || true ;;
+    esac
+    if command -v wl-copy >/dev/null 2>&1 || command -v xclip >/dev/null 2>&1 \
+        || command -v xsel >/dev/null 2>&1; then
+        ok "Clipboard helper installed."
+    else
+        warn "No clipboard tool installed; Copy will use the OSC 52 terminal escape,"
+        warn "which some terminals ignore. Install 'wl-clipboard' or 'xclip' for reliable copy."
+    fi
+}
+
 uninstall() {
     say "Removing wireguard-tui"
     as_root rm -f "$BIN" "$PREFIX/bin/wireguard-tui" "$HELPER" "$DESKTOP" "$ICON" "$SUDOERS" "$POLKIT_RULE"
@@ -308,6 +335,7 @@ ensure_sudo
 verify_build_deps
 verify_runtime_deps
 ensure_resolvconf
+ensure_clipboard
 build_app
 
 say "Installing into $PREFIX"

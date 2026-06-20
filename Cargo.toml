@@ -1,6 +1,6 @@
 [package]
 name = "wireguard-tui"
-version = "1.7.1"
+version = "1.7.2"
 edition = "2024"
 description = "A native Linux terminal UI for managing plain WireGuard tunnels with wg and wg-quick."
 license = "MIT"
@@ -41,6 +41,7 @@ section = "net"
 priority = "optional"
 extended-description = "A native Linux terminal UI for managing plain WireGuard tunnels through wg and wg-quick: tunnel list, live status, activate/deactivate, import, editing, key generation, QR display, and a small privileged helper."
 depends = "$auto, wireguard-tools, pkexec | polkit-1 | policykit-1"
+recommends = "wl-clipboard | xclip | xsel"
 assets = [
     ["target/release/wg-tui", "usr/bin/", "755"],
     ["target/release/wg-helper", "usr/lib/wireguard-tui/wg-helper", "755"],

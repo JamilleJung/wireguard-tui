@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-06-21
+
+### Changed
+- **Copy now reaches the system clipboard out of the box.** The installer (and
+  the `.deb`) now pull in a clipboard helper — `wl-clipboard` (Wayland), else
+  `xclip` / `xsel` (X11) — so `y` / `Y` / visual-selection copy land in the real
+  clipboard instead of relying on the OSC 52 terminal escape, which many
+  terminals ignore. OSC 52 remains the automatic fallback when no helper is
+  present (e.g. over plain SSH).
+
 ## [1.7.1] - 2026-06-21
 
 ### Added
