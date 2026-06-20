@@ -202,6 +202,12 @@ install_pkgs() {
 # as_user - never as root, so build scripts/proc-macros don't run with privilege
 # and the toolchain + artifacts land in that user's home, not /root).
 build_app() {
+    # Self-update path: when WG_USE_PREBUILT=1 and both verified binaries are
+    # already staged in target/release, skip the build entirely.
+    if [ "${WG_USE_PREBUILT:-0}" = 1 ] && [ -f "$HERE/target/release/wg-tui" ] && [ -f "$HERE/target/release/wg-helper" ]; then
+        ok "Using staged prebuilt binaries (skipping build)."
+        return 0
+    fi
     # A root install (--allow-root) must not drop a Rust toolchain into /root or
     # run build scripts as root: reuse an existing prebuilt binary when present.
     if [ "$(id -u)" -eq 0 ] && [ "$REAL_USER" = "root" ] \
@@ -235,6 +241,11 @@ BUILD
 
 # Verify the toolchain is actually usable (minimal installs often lack a linker).
 verify_build_deps() {
+    # Self-update path: prebuilt binaries are reused, so a missing compiler must
+    # not abort the update.
+    if [ "${WG_USE_PREBUILT:-0}" = 1 ] && [ -f "$HERE/target/release/wg-tui" ] && [ -f "$HERE/target/release/wg-helper" ]; then
+        return 0
+    fi
     # When a root install will reuse the prebuilt binary, there is nothing to
     # build, so don't fail on a missing compiler/headers.
     if [ "$(id -u)" -eq 0 ] && [ "$REAL_USER" = "root" ] \

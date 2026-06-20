@@ -6,6 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-06-21
+
+### Added
+- **Full keyboard control of the Log tab.** Move a highlighted line cursor with
+  the arrows / `j` `k`, jump by page (`PgUp` / `PgDn`), to the top or bottom
+  (`g` / `G`, `Home` / `End`), and scroll wide lines sideways (`h` / `l`).
+- **Copy anything from the Log.** `y` (or `Enter`) copies the current line; press
+  `v` to start a visual selection, move to extend it, then `y` to copy the range;
+  `Y` copies the whole filtered log. In a tunnel's Detail view, pick a field with
+  `h` / `l` and copy it with `y`. Copying now uses `wl-copy` / `xclip` / `xsel`
+  when available, falling back to the OSC 52 terminal escape.
+- **Automatic updates from GitHub.** On startup wg-tui quietly checks for a newer
+  release and shows `update available … (press u)` in the footer; pressing `u`
+  downloads it, verifies it against the bundled minisign key, and installs it (an
+  unverifiable update is refused). Opt out with `WG_NO_UPDATE_CHECK=1` or a
+  `~/.config/wireguard-tui/no-update` file.
+
+### Fixed
+- **The Log tab is no longer blank** when first opened: it loads immediately and
+  shows a clear placeholder when there is nothing to display or a filter matches
+  no lines.
+- **Clear (`c`) now sticks** — the background refresh no longer repaints the log a
+  second later.
+
 ## [1.7.0] - 2026-06-20
 
 ### Added

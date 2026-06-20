@@ -8,6 +8,7 @@ mod config;
 mod create;
 mod doctor;
 mod secrets;
+mod update;
 mod validation;
 
 use std::io;
@@ -107,6 +108,19 @@ struct App {
     log_filter: String,
     /// Show only Log lines that mention the selected tunnel.
     log_only_selected: bool,
+    /// Highlighted "current line" in the Log view (index into the *filtered*
+    /// lines). Drives scroll, copy-current-line, and visual selection.
+    log_cursor: usize,
+    /// Visual-selection anchor (Some when in visual mode). The selected range is
+    /// [min(anchor,cursor) ..= max(anchor,cursor)].
+    log_select_anchor: Option<usize>,
+    /// Horizontal scroll for wide log lines (h/l or Left/Right).
+    log_hscroll: u16,
+    /// True after `c` clears the log; suppresses the poller's snapshot from
+    /// overwriting the cleared placeholder until the next explicit log action.
+    log_cleared: bool,
+    /// Cursor line in the Detail view (index into a flat list of copyable fields).
+    detail_cursor: usize,
     status: String,
     status_at: Option<Instant>,
     mode: Mode,
@@ -121,6 +135,18 @@ struct App {
     // Shared with the background poller thread (off-UI-thread live refresh).
     poll_in: Arc<Mutex<PollIn>>,
     poll_out: Arc<Mutex<Option<Snapshot>>>,
+    /// A pending newer release found by the detached startup check (if any).
+    update: Option<update::UpdateInfo>,
+    /// Short status line for an in-progress/just-finished self-update.
+    update_status: Option<String>,
+    /// Off-UI-thread mailbox for update check + apply results.
+    update_out: Arc<Mutex<Option<UpdateMsg>>>,
+}
+
+/// A message from the startup update-check thread, drained each UI loop.
+enum UpdateMsg {
+    /// A newer release is available.
+    Available(update::UpdateInfo),
 }
 
 impl App {
@@ -135,6 +161,11 @@ impl App {
             log_follow: true,
             log_filter: String::new(),
             log_only_selected: false,
+            log_cursor: 0,
+            log_select_anchor: None,
+            log_hscroll: 0,
+            log_cleared: false,
+            detail_cursor: 0,
             status: String::new(),
             status_at: None,
             mode: Mode::Normal,
@@ -145,6 +176,9 @@ impl App {
             prev_sample: None,
             poll_in: Arc::new(Mutex::new(PollIn::default())),
             poll_out: Arc::new(Mutex::new(None)),
+            update: None,
+            update_status: None,
+            update_out: Arc::new(Mutex::new(None)),
         };
         app.reload();
         if !app.tunnels.is_empty() {
@@ -206,7 +240,9 @@ impl App {
             self.detail = Some(d);
             self.update_speed(&name, rx, tx);
         }
-        if let Some(log) = snap.log {
+        if let Some(log) = snap.log
+            && !self.log_cleared
+        {
             self.log = log;
         }
     }
@@ -262,17 +298,107 @@ impl App {
 
     fn load_detail(&mut self) {
         self.detail = self.selected_name().map(|n| backend::get_detail(&n));
+        self.detail_cursor = 0; // reset field focus when the tunnel changes
         if let Some(d) = &self.detail {
             let (n, rx, tx) = (d.name.clone(), d.rx_bytes, d.tx_bytes);
             self.update_speed(&n, rx, tx);
         }
     }
 
-    /// Periodic refresh: live status, and the log if that tab is open.
+    /// Switch to the Log tab and prime it so the pane is never blank on first
+    /// view: synchronous load, reset cursor/selection, re-enable follow, and
+    /// flip `want_log` so the poller keeps it fresh.
+    fn enter_log_tab(&mut self) {
+        self.tab = 1;
+        self.log = backend::get_log();
+        self.log_follow = true;
+        self.log_scroll = 0;
+        self.log_cursor = 0;
+        self.log_select_anchor = None;
+        self.log_cleared = false;
+        self.sync_poll_in();
+    }
+
+    /// Move the Log cursor by `delta` lines, clamped; auto-pause follow when the
+    /// user scrolls up, re-enable it when the cursor reaches the last line.
+    fn log_move_cursor(&mut self, delta: isize) {
+        let n = filtered_log_count(self);
+        if n == 0 {
+            self.log_cursor = 0;
+            return;
+        }
+        let last = n - 1;
+        let cur = self.log_cursor.min(last) as isize;
+        self.log_cursor = (cur + delta).clamp(0, last as isize) as usize;
+        // Follow only when parked on the newest line.
+        self.log_follow = self.log_cursor == last;
+    }
+
+    fn log_cursor_top(&mut self) {
+        self.log_cursor = 0;
+        self.log_follow = false;
+    }
+
+    fn log_cursor_bottom(&mut self) {
+        let n = filtered_log_count(self);
+        self.log_cursor = n.saturating_sub(1);
+        self.log_follow = true;
+    }
+
+    /// Drain any pending message from the update worker threads (non-blocking).
+    fn drain_update(&mut self) {
+        let Some(msg) = self.update_out.lock().unwrap().take() else {
+            return;
+        };
+        match msg {
+            UpdateMsg::Available(info) => {
+                self.flash(format!(
+                    "Update available: v{} → v{} (press u)",
+                    info.current, info.latest
+                ));
+                self.update = Some(info);
+            }
+        }
+    }
+
+    /// Flat list of copyable Detail fields in render order: (label, value).
+    fn detail_fields(&self) -> Vec<(String, String)> {
+        let mut v = Vec::new();
+        let Some(d) = &self.detail else { return v };
+        if !d.public_key.is_empty() {
+            v.push(("Public key".into(), d.public_key.clone()));
+        }
+        if !d.listen_port.is_empty() {
+            v.push(("Listen port".into(), d.listen_port.clone()));
+        }
+        if !d.addresses.is_empty() {
+            v.push(("Addresses".into(), d.addresses.clone()));
+        }
+        if !d.dns.is_empty() {
+            v.push(("DNS".into(), d.dns.clone()));
+        }
+        for (i, p) in d.peers.iter().enumerate() {
+            let pre = format!("Peer {} ", i + 1);
+            if !p.public_key.is_empty() {
+                v.push((format!("{pre}public key"), p.public_key.clone()));
+            }
+            if !p.allowed_ips.is_empty() {
+                v.push((format!("{pre}allowed IPs"), p.allowed_ips.clone()));
+            }
+            if !p.endpoint.is_empty() {
+                v.push((format!("{pre}endpoint"), p.endpoint.clone()));
+            }
+        }
+        v
+    }
+
+    /// Periodic refresh: live status, and the log if that tab is open. An
+    /// explicit reload re-shows fresh log data, so it clears the cleared flag.
     fn tick(&mut self) {
         self.reload();
         if self.tab == 1 {
             self.log = backend::get_log();
+            self.log_cleared = false;
         }
     }
 
@@ -343,46 +469,6 @@ fn is_advanced_key(code: KeyCode) -> bool {
             | KeyCode::Char('R') // rename
             | KeyCode::Char('x') // export all
     )
-}
-
-/// Minimal standard-alphabet base64 (for the OSC52 clipboard escape).
-fn base64(data: &[u8]) -> String {
-    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for c in data.chunks(3) {
-        let b0 = c[0] as u32;
-        let b1 = *c.get(1).unwrap_or(&0) as u32;
-        let b2 = *c.get(2).unwrap_or(&0) as u32;
-        let n = (b0 << 16) | (b1 << 8) | b2;
-        out.push(T[((n >> 18) & 63) as usize] as char);
-        out.push(T[((n >> 12) & 63) as usize] as char);
-        out.push(if c.len() > 1 {
-            T[((n >> 6) & 63) as usize] as char
-        } else {
-            '='
-        });
-        out.push(if c.len() > 2 {
-            T[(n & 63) as usize] as char
-        } else {
-            '='
-        });
-    }
-    out
-}
-
-/// Copy `text` to the system clipboard via the OSC 52 terminal escape. Works in
-/// terminals that support it (xterm, kitty, wezterm, tmux with passthrough, …);
-/// a no-op elsewhere. Doesn't draw, so it won't disturb the ratatui frame.
-fn osc52_copy(text: &str) {
-    use std::io::Write as _;
-    let text = clipboard::normalize_single_field_copy_value(text);
-    if text.is_empty() {
-        return;
-    }
-    let seq = format!("\x1b]52;c;{}\x07", base64(text.as_bytes()));
-    let mut out = std::io::stdout();
-    let _ = out.write_all(seq.as_bytes());
-    let _ = out.flush();
 }
 
 /// Set a status and repaint immediately - so slow privileged calls (which block
@@ -570,8 +656,21 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
     let mut app = App::new();
     spawn_poller(app.poll_in.clone(), app.poll_out.clone());
 
+    // One-shot startup update check on a detached thread - never blocks the UI,
+    // opt-out via WG_NO_UPDATE_CHECK or a persistent file. Offline/curl error is
+    // a silent no-op.
+    if !update::disabled() {
+        let out = app.update_out.clone();
+        std::thread::spawn(move || {
+            if let Ok(Some(info)) = update::check() {
+                *out.lock().unwrap() = Some(UpdateMsg::Available(info));
+            }
+        });
+    }
+
     while !app.quit {
         app.apply_snapshot();
+        app.drain_update();
         app.sync_poll_in();
         app.expire_status();
         terminal.draw(|f| ui(f, &mut app))?;
@@ -922,6 +1021,7 @@ fn handle_key(
                 KeyCode::Enter => {
                     let v = buf.trim().to_string();
                     app.log_filter = v;
+                    app.log_cleared = false;
                     app.mode = Mode::Normal;
                 }
                 KeyCode::Backspace => {
@@ -944,6 +1044,11 @@ fn handle_key(
 
     // Normal-mode keys.
     match code {
+        // Esc cancels a Log visual selection instead of quitting (must precede q/Esc).
+        KeyCode::Esc if app.tab == 1 && app.log_select_anchor.is_some() => {
+            app.log_select_anchor = None;
+            app.flash("Selection cancelled");
+        }
         KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
         KeyCode::Char('m') => {
             app.easy = !app.easy;
@@ -954,52 +1059,85 @@ fn handle_key(
                 "Advanced mode (all actions)"
             });
         }
-        KeyCode::Char('y') => match app.detail.as_ref().map(|d| d.public_key.clone()) {
-            Some(pk) if !pk.is_empty() => {
-                osc52_copy(&pk);
-                app.flash("Public key copied to clipboard");
-            }
-            _ => app.flash("No public key to copy"),
-        },
-        KeyCode::Tab | KeyCode::BackTab => {
-            app.tab = 1 - app.tab;
+        // --- Copy (context-aware) ---
+        KeyCode::Char('y') => {
             if app.tab == 1 {
-                app.log = backend::get_log();
-                app.log_scroll = 0;
+                copy_log_current_or_selection(app);
+            } else {
+                // Tunnels tab: copy the focused Detail field.
+                copy_detail_field(app);
             }
         }
+        KeyCode::Char('v') if app.tab == 1 => {
+            // Toggle visual selection mode, anchored at the cursor.
+            if app.log_select_anchor.take().is_none() {
+                app.log_select_anchor = Some(app.log_cursor);
+                app.flash("Visual select: move to extend, y to copy, Esc to cancel");
+            } else {
+                app.flash("Selection cleared");
+            }
+        }
+        KeyCode::Char('Y') if app.tab == 1 => {
+            // Copy the whole filtered log.
+            let lines = filtered_log_text_lines(app);
+            let n = lines.len();
+            clipboard::copy_text(&lines.join("\n"));
+            app.flash(format!("Copied {n} log line(s)"));
+        }
+        KeyCode::Tab | KeyCode::BackTab => {
+            if app.tab == 0 {
+                app.enter_log_tab();
+            } else {
+                app.tab = 0;
+                app.sync_poll_in();
+            }
+        }
+        // Enter copies on the Log tab; on the Tunnels tab it still toggles (below).
+        KeyCode::Enter if app.tab == 1 => copy_log_current_or_selection(app),
         KeyCode::Down | KeyCode::Char('j') => {
             if app.tab == 1 {
-                app.log_follow = false;
-                app.log_scroll = app.log_scroll.saturating_add(1);
+                app.log_move_cursor(1);
             } else {
                 app.move_selection(1);
             }
         }
         KeyCode::Up | KeyCode::Char('k') => {
             if app.tab == 1 {
-                app.log_follow = false;
-                app.log_scroll = app.log_scroll.saturating_sub(1);
+                app.log_move_cursor(-1);
             } else {
                 app.move_selection(-1);
             }
         }
-        // ---- Log-tab management (only while the Log tab is open) ----
-        KeyCode::PageDown if app.tab == 1 => {
-            app.log_follow = false;
-            app.log_scroll = app.log_scroll.saturating_add(10);
+        // ---- Log-tab cursor navigation (only while the Log tab is open) ----
+        KeyCode::PageDown if app.tab == 1 => app.log_move_cursor(10),
+        KeyCode::PageUp if app.tab == 1 => app.log_move_cursor(-10),
+        KeyCode::Home if app.tab == 1 => app.log_cursor_top(),
+        KeyCode::End if app.tab == 1 => app.log_cursor_bottom(),
+        KeyCode::Char('g') if app.tab == 1 => app.log_cursor_top(), // vim top
+        KeyCode::Char('G') if app.tab == 1 => app.log_cursor_bottom(), // vim bottom
+        // Horizontal scroll for wide log lines.
+        KeyCode::Left | KeyCode::Char('h') if app.tab == 1 => {
+            app.log_hscroll = app.log_hscroll.saturating_sub(8);
         }
-        KeyCode::PageUp if app.tab == 1 => {
-            app.log_follow = false;
-            app.log_scroll = app.log_scroll.saturating_sub(10);
+        KeyCode::Right | KeyCode::Char('l') if app.tab == 1 => {
+            app.log_hscroll = app.log_hscroll.saturating_add(8);
         }
-        KeyCode::Home if app.tab == 1 => {
-            app.log_follow = false;
-            app.log_scroll = 0;
+        // ---- Detail field navigation (only while the Tunnels tab is open) ----
+        KeyCode::Right | KeyCode::Char('l') if app.tab == 0 => {
+            let n = app.detail_fields().len();
+            if n > 0 {
+                app.detail_cursor = (app.detail_cursor + 1) % n;
+            }
         }
-        KeyCode::End if app.tab == 1 => app.log_follow = true,
+        KeyCode::Left | KeyCode::Char('h') if app.tab == 0 => {
+            let n = app.detail_fields().len();
+            if n > 0 {
+                app.detail_cursor = (app.detail_cursor + n - 1) % n;
+            }
+        }
         KeyCode::Char('f') if app.tab == 1 => {
             app.log_follow = !app.log_follow;
+            app.log_cleared = false;
             app.flash(if app.log_follow {
                 "Log: following newest"
             } else {
@@ -1008,6 +1146,7 @@ fn handle_key(
         }
         KeyCode::Char('t') if app.tab == 1 => {
             app.log_only_selected = !app.log_only_selected;
+            app.log_cleared = false;
             app.flash(if app.log_only_selected {
                 "Log: showing the selected tunnel only"
             } else {
@@ -1020,6 +1159,7 @@ fn handle_key(
             app.log = "(cleared — press r to reload from the journal)".into();
             app.log_scroll = 0;
             app.log_follow = false;
+            app.log_cleared = true;
         }
         // Backup manager (works from either tab).
         KeyCode::Char('B') => {
@@ -1057,10 +1197,59 @@ fn handle_key(
             app.tick();
             app.flash("Refreshed");
         }
+        KeyCode::Char('u') => self_update(app, terminal)?,
         KeyCode::Char('?') => app.mode = Mode::Help,
         KeyCode::Char('A') => app.mode = Mode::About,
         _ => {}
     }
+    Ok(())
+}
+
+/// Download + verify + install the pending update with the TUI suspended.
+///
+/// Running `install.sh` (which may prompt for a sudo/su password) while ratatui
+/// owns the raw-mode alternate screen corrupts the terminal and deadlocks on the
+/// hidden prompt, so - exactly like `run_editor` - we drop back to the cooked
+/// foreground terminal for the duration and re-init ratatui afterwards.
+fn self_update(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
+    let Some(info) = &app.update else {
+        app.flash("No update available");
+        return Ok(());
+    };
+    let latest = info.latest.clone();
+
+    // Suspend the TUI and run the whole flow on the foreground cooked terminal.
+    ratatui::restore();
+
+    println!("Downloading and verifying v{latest}...");
+    let final_status = match update::download_and_verify() {
+        Err(e) => {
+            println!("Update failed: {e}");
+            format!("Update failed: {e}")
+        }
+        Ok(tardir) => {
+            println!("Installing - you may be prompted for your password...");
+            match update::apply(&tardir) {
+                Ok(()) => {
+                    println!("Updated to v{latest}. Restart wg-tui to use it.");
+                    format!("Updated to v{latest} - restart wg-tui to use it")
+                }
+                Err(e) => {
+                    println!("Update failed: {e}");
+                    format!("Update failed: {e}")
+                }
+            }
+        }
+    };
+
+    print!("Press Enter to return to wg-tui...");
+    io::stdout().flush()?;
+    let mut _line = String::new();
+    let _ = io::stdin().read_line(&mut _line);
+
+    *terminal = ratatui::init();
+    terminal.clear()?;
+    app.update_status = Some(final_status);
     Ok(())
 }
 
@@ -1634,33 +1823,44 @@ fn ui(f: &mut Frame, app: &mut App) {
     // terminals). Both keep ? help / q quit visible.
     let hint = if app.tab == 1 {
         // The Log tab has its own keys; show them instead of the tunnel actions.
-        let full = " Up/Dn/PgUp/PgDn scroll  Home top  End/f follow  t this-tunnel  / filter  w save  c clear  r reload  Tab tunnels  B backup  ? help  q quit";
-        let compact = " Up/Dn scroll  f follow  t tunnel  / filter  w save  c clear  r reload  Tab tunnels  B backup  ? help  q quit";
+        let full = " j/k move  g/G top/bot  PgUp/Dn  h/l ←→  f follow  t tunnel  / filter  y copy  v select  Y copy-all  w save  c clear  r reload  Tab tunnels  ? help  q quit";
+        let compact = " j/k move  f follow  / filter  y copy  v select  Y all  w save  Tab tunnels  ? help  q quit";
         if full.chars().count() as u16 <= chunks[2].width {
             full
         } else {
             compact
         }
     } else if app.easy {
-        " Up/Dn move  Enter/a on/off  n new  i import  s on-boot  d remove  Q qr  y copy-key  B backup  Tab log  m advanced  A about  ? help  q quit"
+        " Up/Dn move  Enter/a on/off  n new  i import  s on-boot  d remove  Q qr  h/l field  y copy  B backup  Tab log  m advanced  A about  ? help  q quit"
     } else {
-        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  y copy-key  c showconf  d del  R rename  s boot  K kill  + add-peer  p save-live  Q qr  x export  B backup  Tab log  m easy  A about  ? help  q quit";
-        let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  d del  Q qr  B backup  Tab log  m easy  ? help  q quit";
+        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  h/l field  y copy  c showconf  d del  R rename  s boot  K kill  + add-peer  p save-live  Q qr  x export  B backup  Tab log  m easy  A about  ? help  q quit";
+        let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  d del  Q qr  h/l field  y copy  B backup  Tab log  m easy  ? help  q quit";
         if full.chars().count() as u16 <= chunks[2].width {
             full
         } else {
             compact
         }
     };
-    let footer = if app.status.is_empty() {
+    // Priority: in-flight update status > transient status > update banner > hints.
+    let footer = if let Some(s) = &app.update_status {
         Line::from(vec![Span::styled(
-            hint,
-            Style::default().fg(Color::DarkGray),
+            format!(" {s}"),
+            Style::default().fg(Color::Green).bold(),
         )])
-    } else {
+    } else if !app.status.is_empty() {
         Line::from(vec![Span::styled(
             format!(" {}", app.status),
             Style::default().fg(Color::Yellow),
+        )])
+    } else if let Some(info) = &app.update {
+        Line::from(vec![Span::styled(
+            format!(" update available v{} (press u)", info.latest),
+            Style::default().fg(Color::Green).bold(),
+        )])
+    } else {
+        Line::from(vec![Span::styled(
+            hint,
+            Style::default().fg(Color::DarkGray),
         )])
     };
     f.render_widget(Paragraph::new(footer), chunks[2]);
@@ -1825,6 +2025,18 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
         None => " Details ".to_string(),
     };
 
+    // Copyable-field index; stays in lockstep with `App::detail_fields()` so the
+    // highlighted row is exactly the one `y` will copy.
+    let mut fi = 0usize;
+    let mut push_field = |lines: &mut Vec<Line>, label: &str, value: &str| {
+        let mut line = kv(label, value);
+        if fi == app.detail_cursor {
+            line = line.style(Style::default().bg(Color::Blue));
+        }
+        fi += 1;
+        lines.push(line);
+    };
+
     if let Some(d) = &app.detail {
         lines.push(Line::from(Span::styled(
             "Interface",
@@ -1865,10 +2077,29 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
                 ),
             ));
         }
-        lines.push(kv("Public key", &dash(&d.public_key)));
-        lines.push(kv("Listen port", &dash(&d.listen_port)));
-        lines.push(kv("Addresses", &dash(&d.addresses)));
-        lines.push(kv("DNS", &dash(&d.dns)));
+        // Copyable interface fields (highlighted when focused). Non-empty ones
+        // mirror `detail_fields()` exactly via `push_field`; empty ones render as
+        // a plain dash and are not in the copyable index.
+        if d.public_key.is_empty() {
+            lines.push(kv("Public key", "-"));
+        } else {
+            push_field(&mut lines, "Public key", &d.public_key);
+        }
+        if d.listen_port.is_empty() {
+            lines.push(kv("Listen port", "-"));
+        } else {
+            push_field(&mut lines, "Listen port", &d.listen_port);
+        }
+        if d.addresses.is_empty() {
+            lines.push(kv("Addresses", "-"));
+        } else {
+            push_field(&mut lines, "Addresses", &d.addresses);
+        }
+        if d.dns.is_empty() {
+            lines.push(kv("DNS", "-"));
+        } else {
+            push_field(&mut lines, "DNS", &d.dns);
+        }
         lines.push(kv("Start on boot", if d.autostart { "Yes" } else { "No" }));
         lines.push(kv("Kill switch", if d.killswitch { "Yes" } else { "No" }));
 
@@ -1878,10 +2109,22 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
                 format!("Peer {}", i + 1),
                 Style::default().fg(Color::Cyan).bold(),
             )));
-            lines.push(kv("Public key", &dash(&p.public_key)));
+            if p.public_key.is_empty() {
+                lines.push(kv("Public key", "-"));
+            } else {
+                push_field(&mut lines, "Public key", &p.public_key);
+            }
             lines.push(kv("Preshared key", if p.preshared { "Yes" } else { "-" }));
-            lines.push(kv("Allowed IPs", &dash(&p.allowed_ips)));
-            lines.push(kv("Endpoint", &dash(&p.endpoint)));
+            if p.allowed_ips.is_empty() {
+                lines.push(kv("Allowed IPs", "-"));
+            } else {
+                push_field(&mut lines, "Allowed IPs", &p.allowed_ips);
+            }
+            if p.endpoint.is_empty() {
+                lines.push(kv("Endpoint", "-"));
+            } else {
+                push_field(&mut lines, "Endpoint", &p.endpoint);
+            }
             lines.push(kv("Keepalive", &dash(&p.keepalive)));
             lines.push(kv("Latest hs", &dash(&p.latest_handshake)));
             lines.push(kv("Transfer", &dash(&p.transfer)));
@@ -1933,6 +2176,39 @@ fn save_log(app: &mut App) {
         Ok(()) => app.flash(format!("Log saved to {}", dest.display())),
         Err(e) => app.flash(format!("Save failed: {e}")),
     }
+}
+
+/// Copy the current Log line, or the visual selection if one is active.
+fn copy_log_current_or_selection(app: &mut App) {
+    let lines = filtered_log_text_lines(app);
+    if lines.is_empty() {
+        app.flash("Nothing to copy");
+        return;
+    }
+    let (lo, hi) = match app.log_select_anchor {
+        Some(a) => (a.min(app.log_cursor), a.max(app.log_cursor)),
+        None => (app.log_cursor, app.log_cursor),
+    };
+    let lo = lo.min(lines.len() - 1);
+    let hi = hi.min(lines.len() - 1);
+    let chunk = &lines[lo..=hi];
+    let n = chunk.len();
+    clipboard::copy_text(&chunk.join("\n"));
+    app.log_select_anchor = None; // exit visual mode after copying
+    app.flash(format!("Copied {n} line(s)"));
+}
+
+/// Copy the focused Detail field (Tunnels tab).
+fn copy_detail_field(app: &mut App) {
+    let fields = app.detail_fields();
+    if fields.is_empty() {
+        app.flash("No fields to copy");
+        return;
+    }
+    let i = app.detail_cursor.min(fields.len() - 1);
+    let (label, value) = &fields[i];
+    clipboard::copy_text(&clipboard::normalize_single_field_copy_value(value));
+    app.flash(format!("Copied {label}"));
 }
 
 /// The backup manager popup: one archive per row (date, size, tunnel count,
@@ -1998,9 +2274,9 @@ fn log_line_style(line: &str) -> Style {
     }
 }
 
-/// The log split into styled lines after the active filters (substring +
-/// this-tunnel) are applied.
-fn filtered_log_lines(app: &App) -> Vec<Line<'static>> {
+/// Number of log lines after filters - used for cursor/scroll clamping in the
+/// key handlers without building styled `Line`s.
+fn filtered_log_count(app: &App) -> usize {
     let needle = app.log_filter.to_ascii_lowercase();
     let only = if app.log_only_selected {
         app.selected_name()
@@ -2013,21 +2289,106 @@ fn filtered_log_lines(app: &App) -> Vec<Line<'static>> {
             (needle.is_empty() || line.to_ascii_lowercase().contains(&needle))
                 && only.as_deref().is_none_or(|n| line.contains(n))
         })
-        .map(|line| Line::styled(line.to_string(), log_line_style(line)))
+        .count()
+}
+
+/// The plain (unstyled) filtered lines - used by the copy commands.
+fn filtered_log_text_lines(app: &App) -> Vec<String> {
+    let needle = app.log_filter.to_ascii_lowercase();
+    let only = if app.log_only_selected {
+        app.selected_name()
+    } else {
+        None
+    };
+    app.log
+        .lines()
+        .filter(|line| {
+            (needle.is_empty() || line.to_ascii_lowercase().contains(&needle))
+                && only.as_deref().is_none_or(|n| line.contains(n))
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+/// The log split into styled lines after the active filters (substring +
+/// this-tunnel) are applied, with the current line and any visual selection
+/// highlighted.
+fn filtered_log_lines(app: &App) -> Vec<Line<'static>> {
+    let needle = app.log_filter.to_ascii_lowercase();
+    let only = if app.log_only_selected {
+        app.selected_name()
+    } else {
+        None
+    };
+
+    // Visual-selection range (inclusive) over filtered-line indices.
+    let sel = app.log_select_anchor.map(|a| {
+        let c = app.log_cursor;
+        (a.min(c), a.max(c))
+    });
+
+    app.log
+        .lines()
+        .filter(|line| {
+            (needle.is_empty() || line.to_ascii_lowercase().contains(&needle))
+                && only.as_deref().is_none_or(|n| line.contains(n))
+        })
+        .enumerate()
+        .map(|(i, line)| {
+            let base = log_line_style(line);
+            let styled = if sel.is_some_and(|(lo, hi)| i >= lo && i <= hi) {
+                // Selected range: blue background, readable foreground.
+                base.bg(Color::Blue).fg(Color::White).bold()
+            } else if i == app.log_cursor {
+                // Current-line cursor.
+                base.bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+            } else {
+                base
+            };
+            Line::styled(line.to_string(), styled)
+        })
         .collect()
 }
 
 fn render_log(f: &mut Frame, app: &mut App, area: Rect) {
-    let lines = filtered_log_lines(app);
+    let mut lines = filtered_log_lines(app);
+    if lines.is_empty() {
+        let why = if !app.log_filter.is_empty() || app.log_only_selected {
+            "No log lines match the current filter.  Press / to edit, t to toggle this-tunnel, or c to clear."
+        } else if app.log.trim().is_empty() {
+            "(no log loaded — press r to reload from the journal)"
+        } else {
+            // app.log holds the backend's own placeholder/error string.
+            app.log.as_str()
+        };
+        lines.push(Line::styled(
+            why.to_string(),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+
     let total = lines.len() as u16;
     let view_h = area.height.saturating_sub(2);
     let max_scroll = total.saturating_sub(view_h);
-    // Follow pins to the newest line; otherwise keep the cursor in range.
+
+    // Clamp cursor into range first (filters may have shrunk the list).
+    let last_line = total.saturating_sub(1);
+    if app.log_cursor as u16 > last_line {
+        app.log_cursor = last_line as usize;
+    }
+    let cursor = app.log_cursor as u16;
+
+    // Scroll so the cursor stays visible; follow pins to the bottom.
     app.log_scroll = if app.log_follow {
         max_scroll
+    } else if cursor < app.log_scroll {
+        cursor // cursor above viewport → scroll up
+    } else if view_h > 0 && cursor >= app.log_scroll + view_h {
+        cursor.saturating_sub(view_h - 1) // cursor below viewport → scroll down
     } else {
         app.log_scroll.min(max_scroll)
     };
+
     let mut title = format!(" Log — {total} lines");
     if !app.log_filter.is_empty() {
         title.push_str(&format!("  /{}", app.log_filter));
@@ -2041,10 +2402,10 @@ fn render_log(f: &mut Frame, app: &mut App, area: Rect) {
         "  [paused]"
     });
     title.push(' ');
+    // No wrap: horizontal scroll (h/l) needs single-row lines to be meaningful.
     let p = Paragraph::new(lines)
         .block(Block::default().borders(Borders::ALL).title(title))
-        .scroll((app.log_scroll, 0))
-        .wrap(Wrap { trim: false });
+        .scroll((app.log_scroll, app.log_hscroll));
     f.render_widget(p, area);
 }
 
@@ -2093,23 +2454,26 @@ fn render_help(f: &mut Frame) {
   TUNNELS TAB
   Up/Dn k/j   Move        Enter/a  On / off
   n  New       i  Import   d  Delete
-  s  On-boot   Q  Show QR  y  Copy pubkey
+  s  On-boot   Q  Show QR  h/l  Pick detail field
+  y  Copy focused field
   Advanced (m):
     e edit   g gen-keys  c show-conf  + add-peer
     K kill   p save-live R rename     x export-all
 
   LOG TAB  (press Tab)
-  Up/Dn PgUp/PgDn Home   Scroll
-  End / f  Follow        t  This-tunnel only
-  /  Filter              w  Save to file
-  c  Clear view          r  Reload journal
+  Up/Dn j/k   Move cursor    PgUp/PgDn  Page
+  Home/g Top  End/G Bottom   h/l Left/Right
+  f  Follow newest           t  This-tunnel only
+  /  Filter                  c  Clear view   r  Reload
+  y/Enter Copy line          v  Visual select
+  Y  Copy whole filtered log w  Save to file
 
   BACKUP  (press B, from any tab)
   n  new       Enter/r  restore
   d  delete    x  export to home   Esc  close
 
-  Tab tabs   m mode   r refresh   A about   q quit";
-    let area = popup_area(f.area(), 56, 24);
+  Tab tabs   m mode   r refresh   u update   A about   q quit";
+    let area = popup_area(f.area(), 60, 27);
     f.render_widget(Clear, area);
     let title = format!(
         " wg-tui v{} keys (any key closes) ",
