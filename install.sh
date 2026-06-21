@@ -4,7 +4,7 @@
 #
 #   ./install.sh              build + install (auto-installs missing deps)
 #   ./install.sh --polkit     use a polkit rule instead of a sudoers drop-in
-#   ./install.sh --desktop    also install a desktop entry/icon (opt-in)
+#   ./install.sh --no-desktop skip the app-menu desktop entry/icon (on by default)
 #   ./install.sh uninstall    remove everything
 #
 # Works on Debian/Ubuntu, Fedora/RHEL, Arch/Manjaro, openSUSE, Alpine, Void
@@ -37,7 +37,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # ---------------------------------------------------------------------------
 # Args
 # ---------------------------------------------------------------------------
-ACTION="install"; AUTH_MODE="sudoers"; INSTALL_DESKTOP=0; ALLOW_ROOT="${WG_ALLOW_ROOT:-0}"
+ACTION="install"; AUTH_MODE="sudoers"; INSTALL_DESKTOP=1; ALLOW_ROOT="${WG_ALLOW_ROOT:-0}"
 for arg in "$@"; do
     case "$arg" in
         uninstall)  ACTION="uninstall" ;;

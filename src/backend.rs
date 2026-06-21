@@ -924,6 +924,135 @@ pub fn sanitize_name(file_stem: &str) -> String {
     validation::sanitize_import_name(file_stem)
 }
 
+// ---------------------------------------------------------------------------
+// Connection diagnostics — surfaces the "active but not actually connected"
+// case (handshake never completes), whose nastiest cause is a skewed system
+// clock that the server's TAI64N anti-replay rejects.
+// ---------------------------------------------------------------------------
+
+fn diag_line(s: &mut String, mark: &str, label: &str, detail: &str) {
+    s.push_str(&format!("  {mark} {label:<12} {detail}\n"));
+}
+
+fn endpoint_host(ep: &str) -> String {
+    if let Some(rest) = ep.strip_prefix('[')
+        && let Some((h, _)) = rest.split_once(']')
+    {
+        return h.to_string();
+    }
+    ep.rsplit_once(':')
+        .map(|(h, _)| h.to_string())
+        .unwrap_or_else(|| ep.to_string())
+}
+
+fn ping_host(host: &str) -> Option<bool> {
+    let st = Command::new("ping")
+        .args(["-c", "1", "-W", "2", host])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .ok()?;
+    Some(st.success())
+}
+
+fn dns_ok() -> bool {
+    use std::net::ToSocketAddrs;
+    ("one.one.one.one", 443)
+        .to_socket_addrs()
+        .map(|mut a| a.next().is_some())
+        .unwrap_or(false)
+}
+
+/// Run a connection-health checklist for `name` and return a formatted report.
+/// Safe on a background thread (pings / resolves / shells out).
+pub fn diagnose_report(name: &str) -> String {
+    let mut s = format!("Connection check for {name}\n\n");
+    match crate::doctor::clock_synced() {
+        Some(true) => diag_line(&mut s, "[OK]", "Clock", "system clock is NTP-synced"),
+        Some(false) => {
+            diag_line(
+                &mut s,
+                "[X]",
+                "Clock",
+                "NOT synced — server rejects handshakes from a wrong clock (anti-replay)",
+            );
+            s.push_str(
+                "       -> sync time (enable NTP/chrony); if it just drifted, the server may need its peer reset\n",
+            );
+        }
+        None => diag_line(&mut s, "[?]", "Clock", "could not read clock-sync status"),
+    }
+    let d = get_detail(name);
+    if !d.active {
+        diag_line(
+            &mut s,
+            "[!]",
+            "Tunnel",
+            "not active — activate it first, then re-run",
+        );
+        return s;
+    }
+    diag_line(&mut s, "[OK]", "Tunnel", &format!("{name} is up"));
+    match d.handshake_age {
+        Some(a) if a < 180 => diag_line(
+            &mut s,
+            "[OK]",
+            "Handshake",
+            &format!("last handshake {a}s ago"),
+        ),
+        _ => {
+            diag_line(
+                &mut s,
+                "[X]",
+                "Handshake",
+                "no recent handshake — up but NOT actually connected",
+            );
+            s.push_str(
+                "       -> likely (in order): clock not synced; endpoint unreachable; or server has not accepted this peer's key/preshared-key\n",
+            );
+        }
+    }
+    match d
+        .peers
+        .iter()
+        .map(|p| p.endpoint.clone())
+        .find(|e| !e.is_empty())
+    {
+        Some(ep) => {
+            let host = endpoint_host(&ep);
+            match ping_host(&host) {
+                Some(true) => {
+                    diag_line(&mut s, "[OK]", "Endpoint", &format!("{host} is reachable"))
+                }
+                Some(false) => {
+                    diag_line(
+                        &mut s,
+                        "[!]",
+                        "Endpoint",
+                        &format!("{host} did not answer ping"),
+                    );
+                    s.push_str(
+                        "       -> server may block ICMP (handshake can still work) or the host is down\n",
+                    );
+                }
+                None => diag_line(&mut s, "[?]", "Endpoint", "could not test the endpoint"),
+            }
+        }
+        None => diag_line(&mut s, "[?]", "Endpoint", "no endpoint set in this config"),
+    }
+    if dns_ok() {
+        diag_line(&mut s, "[OK]", "DNS", "name resolution works");
+    } else {
+        diag_line(
+            &mut s,
+            "[!]",
+            "DNS",
+            "DNS lookup failed — check the tunnel's DNS = line / resolvconf",
+        );
+    }
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

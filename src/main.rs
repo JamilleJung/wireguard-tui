@@ -93,6 +93,13 @@ enum Mode {
     ConfirmBackupDelete(PathBuf),
     /// Text entry for a live Log-tab filter (substring match).
     LogFilter(String),
+    /// A scrollable full-screen document viewer (e.g. the concepts guide or the
+    /// changelog). `scroll` is the top visible line; Esc/`q` closes it.
+    Doc {
+        title: String,
+        body: &'static str,
+        scroll: u16,
+    },
 }
 
 struct App {
@@ -125,8 +132,6 @@ struct App {
     status_at: Option<Instant>,
     mode: Mode,
     quit: bool,
-    /// Easy mode hides expert actions for everyday users (toggle with `m`).
-    easy: bool,
     /// Live throughput (bytes/sec) for the selected tunnel + the last sample it
     /// was derived from (name, rx, tx, when) so deltas reset on a new selection.
     rate_rx: u64,
@@ -143,10 +148,12 @@ struct App {
     update_out: Arc<Mutex<Option<UpdateMsg>>>,
 }
 
-/// A message from the startup update-check thread, drained each UI loop.
+/// A message from a background worker thread, drained each UI loop.
 enum UpdateMsg {
     /// A newer release is available.
     Available(update::UpdateInfo),
+    /// A finished connection diagnosis report, to show in a popup.
+    Diagnosed(String),
 }
 
 impl App {
@@ -170,7 +177,6 @@ impl App {
             status_at: None,
             mode: Mode::Normal,
             quit: false,
-            easy: load_easy(),
             rate_rx: 0,
             rate_tx: 0,
             prev_sample: None,
@@ -358,6 +364,11 @@ impl App {
                 ));
                 self.update = Some(info);
             }
+            UpdateMsg::Diagnosed(report) => {
+                self.status.clear();
+                self.status_at = None;
+                self.mode = Mode::Message(report);
+            }
         }
     }
 
@@ -427,48 +438,6 @@ impl App {
             self.status_at = None;
         }
     }
-}
-
-/// Path of the saved Easy/Advanced preference: $XDG_CONFIG_HOME (or ~/.config)
-/// /wireguard-tui/mode.
-fn mode_state_path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("wireguard-tui").join("mode"))
-}
-
-/// Load the saved mode. New users default to Easy mode.
-fn load_easy() -> bool {
-    match mode_state_path().and_then(|p| std::fs::read_to_string(p).ok()) {
-        Some(s) => s.trim() != "advanced",
-        None => true,
-    }
-}
-
-/// Persist the mode so the choice sticks across runs.
-fn save_easy(easy: bool) {
-    if let Some(p) = mode_state_path() {
-        if let Some(dir) = p.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let _ = std::fs::write(p, if easy { "easy" } else { "advanced" });
-    }
-}
-
-/// Keys hidden in Easy mode (expert/raw-config actions).
-fn is_advanced_key(code: KeyCode) -> bool {
-    matches!(
-        code,
-        KeyCode::Char('e') // edit raw config
-            | KeyCode::Char('g') // generate keys
-            | KeyCode::Char('c') // show running config
-            | KeyCode::Char('p') // save live state
-            | KeyCode::Char('K') // helper-managed kill switch
-            | KeyCode::Char('+') // quick-add peer section
-            | KeyCode::Char('R') // rename
-            | KeyCode::Char('x') // export all
-    )
 }
 
 /// Set a status and repaint immediately - so slow privileged calls (which block
@@ -733,6 +702,21 @@ fn spawn_poller(poll_in: Arc<Mutex<PollIn>>, poll_out: Arc<Mutex<Option<Snapshot
     });
 }
 
+/// Trim the dev-facing Keep-a-Changelog header/intro and the (usually empty)
+/// `[Unreleased]` section for the in-app "What's new" view — start at the first
+/// `## [x.y.z]` heading. Returns a sub-slice, so the body stays `&'static str`.
+fn changelog_for_display(src: &'static str) -> &'static str {
+    let mut offset = 0;
+    for line in src.lines() {
+        let t = line.trim_start();
+        if t.starts_with("## [") && t.as_bytes().get(4).is_some_and(u8::is_ascii_digit) {
+            return &src[offset..];
+        }
+        offset += line.len() + 1; // +1 for the '\n' that `lines()` stripped
+    }
+    src
+}
+
 // ---------------------------------------------------------------------------
 // Input handling
 // ---------------------------------------------------------------------------
@@ -752,6 +736,22 @@ fn handle_key(
     match &mut app.mode {
         Mode::Help | Mode::About | Mode::Message(_) | Mode::Qr(_) => {
             app.mode = Mode::Normal;
+            return Ok(());
+        }
+        Mode::Doc { body, scroll, .. } => {
+            // Total wrapped-ignoring line count; clamp the top line so we never
+            // scroll past the end of the document.
+            let max = (body.lines().count() as u16).saturating_sub(1);
+            match code {
+                KeyCode::Esc | KeyCode::Char('q') => app.mode = Mode::Normal,
+                KeyCode::Down | KeyCode::Char('j') => *scroll = (*scroll + 1).min(max),
+                KeyCode::Up | KeyCode::Char('k') => *scroll = scroll.saturating_sub(1),
+                KeyCode::PageDown => *scroll = scroll.saturating_add(15).min(max),
+                KeyCode::PageUp => *scroll = scroll.saturating_sub(15),
+                KeyCode::Home | KeyCode::Char('g') => *scroll = 0,
+                KeyCode::End | KeyCode::Char('G') => *scroll = max,
+                _ => {}
+            }
             return Ok(());
         }
         Mode::ConfirmDelete(name) => {
@@ -1035,13 +1035,6 @@ fn handle_key(
         Mode::Normal => {}
     }
 
-    // Easy mode hides expert actions on the Tunnels tab; the Log tab's own keys
-    // (filter/follow/clear/save) are always available.
-    if app.easy && app.tab == 0 && is_advanced_key(code) {
-        app.flash("Advanced action - press 'm' to switch to Advanced mode");
-        return Ok(());
-    }
-
     // Normal-mode keys.
     match code {
         // Esc cancels a Log visual selection instead of quitting (must precede q/Esc).
@@ -1050,15 +1043,6 @@ fn handle_key(
             app.flash("Selection cancelled");
         }
         KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
-        KeyCode::Char('m') => {
-            app.easy = !app.easy;
-            save_easy(app.easy);
-            app.flash(if app.easy {
-                "Easy mode (everyday actions)"
-            } else {
-                "Advanced mode (all actions)"
-            });
-        }
         // --- Copy (context-aware) ---
         KeyCode::Char('y') => {
             if app.tab == 1 {
@@ -1198,11 +1182,45 @@ fn handle_key(
             app.flash("Refreshed");
         }
         KeyCode::Char('u') => self_update(app, terminal)?,
+        KeyCode::Char('D') => diagnose(app),
         KeyCode::Char('?') => app.mode = Mode::Help,
         KeyCode::Char('A') => app.mode = Mode::About,
+        // Scrollable "WireGuard explained" concepts guide.
+        KeyCode::Char('H') => {
+            app.mode = Mode::Doc {
+                title: "WireGuard explained".into(),
+                body: include_str!("../docs/help.md"),
+                scroll: 0,
+            };
+        }
+        // Scrollable changelog ("what's new"). On the Log tab `w` saves the log
+        // (handled above), so this only fires on the Tunnels tab.
+        KeyCode::Char('w') => {
+            app.mode = Mode::Doc {
+                title: "What's new".into(),
+                body: changelog_for_display(include_str!("../CHANGELOG.md")),
+                scroll: 0,
+            };
+        }
         _ => {}
     }
     Ok(())
+}
+
+/// Run a connection diagnosis for the selected tunnel off the UI thread (it
+/// pings/resolves and can take a few seconds), delivering the report via the
+/// shared mailbox so the loop can pop it into a Message popup when it's ready.
+fn diagnose(app: &mut App) {
+    let Some(name) = app.selected_name() else {
+        app.flash("Select a tunnel to diagnose");
+        return;
+    };
+    app.flash(format!("Diagnosing {name}…"));
+    let out = app.update_out.clone();
+    std::thread::spawn(move || {
+        let report = backend::diagnose_report(&name);
+        *out.lock().unwrap() = Some(UpdateMsg::Diagnosed(report));
+    });
 }
 
 /// Download + verify + install the pending update with the TUI suspended.
@@ -1231,8 +1249,12 @@ fn self_update(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Re
             println!("Installing - you may be prompted for your password...");
             match update::apply(&tardir) {
                 Ok(()) => {
-                    println!("Updated to v{latest}. Restart wg-tui to use it.");
-                    format!("Updated to v{latest} - restart wg-tui to use it")
+                    println!(
+                        "Updated to v{latest}. Restart wg-tui to use it. Press w to see what's new."
+                    );
+                    format!(
+                        "Updated to v{latest} - restart wg-tui to use it (press w for what's new)"
+                    )
                 }
                 Err(e) => {
                     println!("Update failed: {e}");
@@ -1276,10 +1298,21 @@ fn toggle_active(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::
         backend::activate(&name)
     };
     match res {
-        Ok(()) => app.flash(format!(
-            "{} {name}",
-            if active { "Deactivated" } else { "Activated" }
-        )),
+        Ok(()) => {
+            // Activating with a skewed clock often yields a tunnel that's "up"
+            // but never handshakes (server anti-replay) — warn so the user can
+            // diagnose rather than wonder why nothing works.
+            if !active && doctor::clock_synced() == Some(false) {
+                app.flash(
+                    "Activated — clock not NTP-synced; handshake may be rejected (press D to diagnose)",
+                );
+            } else {
+                app.flash(format!(
+                    "{} {name}",
+                    if active { "Deactivated" } else { "Activated" }
+                ));
+            }
+        }
         Err(e) => {
             // Map common, cryptic failures (e.g. missing resolvconf) to a clear
             // fix; show recognised ones in a popup, the rest in the footer.
@@ -1818,9 +1851,9 @@ fn ui(f: &mut Frame, app: &mut App) {
         render_log(f, app, chunks[1]);
     }
 
-    // Footer: status if set, else key hints. Easy mode shows only the everyday
-    // actions; Advanced shows everything (with a compact fallback on narrow
-    // terminals). Both keep ? help / q quit visible.
+    // Footer: status if set, else key hints. The footer shows the everyday keys
+    // (with a compact fallback on narrow terminals) and points at `?` for the
+    // full, sectioned key map. Every key always works - there is no mode.
     let hint = if app.tab == 1 {
         // The Log tab has its own keys; show them instead of the tunnel actions.
         let full = " j/k move  g/G top/bot  PgUp/Dn  h/l ←→  f follow  t tunnel  / filter  y copy  v select  Y copy-all  w save  c clear  r reload  Tab tunnels  ? help  q quit";
@@ -1830,18 +1863,24 @@ fn ui(f: &mut Frame, app: &mut App) {
         } else {
             compact
         }
-    } else if app.easy {
-        " Up/Dn move  Enter/a on/off  n new  i import  s on-boot  d remove  Q qr  h/l field  y copy  B backup  Tab log  m advanced  A about  ? help  q quit"
     } else {
-        let full = " Up/Dn move  Enter/a on/off  e edit  n new  i import  g gen-key  h/l field  y copy  c showconf  d del  R rename  s boot  K kill  + add-peer  p save-live  Q qr  x export  B backup  Tab log  m easy  A about  ? help  q quit";
-        let compact = " Up/Dn move  Enter on/off  e edit  n new  i import  d del  Q qr  h/l field  y copy  B backup  Tab log  m easy  ? help  q quit";
+        let full = " Up/Dn move  Enter/a on/off  n new  i import  d remove  s on-boot  Q qr  h/l field  y copy  D diagnose  B backup  Tab log  H explained  A about  …  ? all keys";
+        let compact = " Up/Dn move  Enter on/off  n new  i import  d remove  Q qr  y copy  D diagnose  Tab log  …  ? all keys";
         if full.chars().count() as u16 <= chunks[2].width {
             full
         } else {
             compact
         }
     };
-    // Priority: in-flight update status > transient status > update banner > hints.
+    // A tunnel that's up but has no recent handshake is "active but not actually
+    // connected" - surface a hint pointing at the diagnose key (Tunnels tab only).
+    let stuck_handshake = app.tab == 0
+        && app
+            .detail
+            .as_ref()
+            .is_some_and(|d| d.active && d.handshake_age.is_none_or(|a| a > 180));
+    // Priority: in-flight update status > transient status > update banner >
+    // stuck-handshake hint > hints.
     let footer = if let Some(s) = &app.update_status {
         Line::from(vec![Span::styled(
             format!(" {s}"),
@@ -1856,6 +1895,11 @@ fn ui(f: &mut Frame, app: &mut App) {
         Line::from(vec![Span::styled(
             format!(" update available v{} (press u)", info.latest),
             Style::default().fg(Color::Green).bold(),
+        )])
+    } else if stuck_handshake {
+        Line::from(vec![Span::styled(
+            " no handshake — press D to diagnose",
+            Style::default().fg(Color::Red).bold(),
         )])
     } else {
         Line::from(vec![Span::styled(
@@ -1918,6 +1962,11 @@ fn ui(f: &mut Frame, app: &mut App) {
             ),
         ),
         Mode::LogFilter(buf) => render_input(f, "Filter log (substring)", buf),
+        Mode::Doc {
+            title,
+            body,
+            scroll,
+        } => render_doc(f, title, body, *scroll),
         Mode::Normal => {}
     }
 }
@@ -2455,10 +2504,14 @@ fn render_help(f: &mut Frame) {
   Up/Dn k/j   Move        Enter/a  On / off
   n  New       i  Import   d  Delete
   s  On-boot   Q  Show QR  h/l  Pick detail field
-  y  Copy focused field
-  Advanced (m):
-    e edit   g gen-keys  c show-conf  + add-peer
-    K kill   p save-live R rename     x export-all
+  y  Copy focused field    D  Diagnose connection
+  H  WireGuard explained   w  What's new (changelog)
+
+  TUNNELS - ADVANCED
+  e  Edit raw config        g  Generate keys
+  c  Show running config    p  Save live state
+  K  Kill switch            + Add peer section
+  R  Rename                 x  Export all
 
   LOG TAB  (press Tab)
   Up/Dn j/k   Move cursor    PgUp/PgDn  Page
@@ -2472,8 +2525,8 @@ fn render_help(f: &mut Frame) {
   n  new       Enter/r  restore
   d  delete    x  export to home   Esc  close
 
-  Tab tabs   m mode   r refresh   u update   A about   q quit";
-    let area = popup_area(f.area(), 60, 27);
+  Tab tabs   r refresh   u update   A about   q quit";
+    let area = popup_area(f.area(), 60, 30);
     f.render_widget(Clear, area);
     let title = format!(
         " wg-tui v{} keys (any key closes) ",
@@ -2496,16 +2549,35 @@ fn render_about(f: &mut Frame) {
          \x20 GitHub     https://github.com/JamilleJung/wireguard-tui\n\
          \x20 Support    https://www.buymeacoffee.com/jamillejung\n\
          \n\
+         \x20 Press w for what's new (changelog) · H for concepts\n\
+         \n\
          \x20 MIT License  \u{b7}  Built with Rust + ratatui",
         env!("CARGO_PKG_VERSION")
     );
-    let area = popup_area(f.area(), 62, 13);
+    let area = popup_area(f.area(), 62, 15);
     f.render_widget(Clear, area);
     let p = Paragraph::new(about).block(
         Block::default()
             .borders(Borders::ALL)
             .title(" About (press any key to close) "),
     );
+    f.render_widget(p, area);
+}
+
+/// A near-full-screen scrollable document viewer (concepts guide, changelog).
+/// `scroll` is the top visible line. Modelled on how the Log view scrolls.
+fn render_doc(f: &mut Frame, title: &str, body: &str, scroll: u16) {
+    let full = f.area();
+    // Leave a small margin so the border doesn't hug the terminal edges.
+    let w = full.width.saturating_sub(4).max(20);
+    let h = full.height.saturating_sub(2).max(6);
+    let area = popup_area(full, w, h);
+    f.render_widget(Clear, area);
+    let title = format!(" {title}  (↑↓/jk PgUp/PgDn g/G scroll · Esc/q close) ");
+    let p = Paragraph::new(body.to_string())
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .wrap(Wrap { trim: false })
+        .scroll((scroll, 0));
     f.render_widget(p, area);
 }
 

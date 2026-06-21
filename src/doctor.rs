@@ -199,6 +199,17 @@ pub fn dns_ok() -> bool {
     which("resolvconf") || systemd_resolved_active()
 }
 
+/// Whether the system clock is disciplined by NTP. `None` if it can't be told.
+/// Read-only adjtimex (modes stays 0) — never changes the clock.
+pub fn clock_synced() -> Option<bool> {
+    let mut tx: libc::timex = unsafe { std::mem::zeroed() };
+    let ret = unsafe { libc::adjtimex(&mut tx) };
+    if ret == -1 {
+        return None;
+    }
+    Some((tx.status & libc::STA_UNSYNC) == 0)
+}
+
 /// A copy-pasteable command to install a resolvconf provider (for `DNS =` lines).
 pub fn install_resolvconf_hint() -> String {
     match pkg_install(resolvconf_pkg()) {
@@ -466,6 +477,30 @@ pub fn system_check() -> Report {
             "no journalctl - the Log view will be empty".to_string()
         },
         fix: None,
+        critical: false,
+    });
+
+    // A wrong system clock makes a WireGuard server reject handshakes (its
+    // TAI64N anti-replay), so the tunnel comes "up" but silently never connects.
+    let (clock_status, clock_detail, clock_fix) = match clock_synced() {
+        Some(true) => (Status::Ok, "system clock is NTP-synced".to_string(), None),
+        Some(false) => (
+            Status::Warning,
+            "clock not NTP-synced — can break WireGuard handshakes (server anti-replay)"
+                .to_string(),
+            Some("enable NTP: timedatectl set-ntp true (or install chrony)".to_string()),
+        ),
+        None => (
+            Status::Unknown,
+            "could not read clock-sync status".to_string(),
+            None,
+        ),
+    };
+    checks.push(Check {
+        name: "System clock (NTP)",
+        status: clock_status,
+        detail: clock_detail,
+        fix: clock_fix,
         critical: false,
     });
 

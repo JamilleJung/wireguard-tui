@@ -6,6 +6,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-06-21
+
+### Added
+- **Connection diagnostics** (press **`D`**): a quick checklist — system clock sync
+  → tunnel up → handshake completing → endpoint reachable → DNS — that tells you
+  *why* a tunnel shows "active" but isn't actually connected, instead of leaving you
+  to guess. A footer hint flags a missing handshake, and activating with an unsynced
+  clock now warns you (a skewed clock silently breaks WireGuard handshakes via the
+  server's replay protection). The clock check is also in `wg-tui doctor`.
+- **In-app guide** (press **`H`**): a scrollable, plain-language explainer of what
+  WireGuard actually is — the interface/peer model, what every key and field means,
+  full vs split tunnel — so you don't have to guess. (`?` stays the quick key map.)
+- **What's new in-app** (press **`w`**): the full changelog, scrollable, without
+  leaving the terminal.
+
+### Changed
+- **No more hidden "Advanced mode".** The `m` Easy/Advanced toggle is gone, and so
+  is the "press m to switch" nag when you hit an expert key. Every key just works
+  now. The footer shows the everyday keys and ends with `? all keys`; press **`?`**
+  for the full, sectioned key map — including a clear **Advanced** group (edit,
+  gen-keys, show-conf, save-live, kill switch, add-peer, rename, export).
+- **wg-tui now appears in your application menu by default**, with an icon. The
+  desktop entry is installed unless you pass `--no-desktop`, and it is now shipped
+  in the `.deb` too (it launches wg-tui in your terminal).
+
 ## [1.7.2] - 2026-06-21
 
 ### Changed
