@@ -4,9 +4,7 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-## [1.8.0] - 2026-06-21
+## [1.8.0] - 2026-06-23
 
 ### Added
 - **Connection diagnostics** (press **`D`**): a quick checklist — system clock sync
@@ -30,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **wg-tui now appears in your application menu by default**, with an icon. The
   desktop entry is installed unless you pass `--no-desktop`, and it is now shipped
   in the `.deb` too (it launches wg-tui in your terminal).
+- **RPM packaging aligned.** Version bumped to 1.8.0, `ExclusiveArch` extended to
+  `x86_64 aarch64` (static binaries already ship for both). Added explicit
+  `BuildRequires: pkgconf-pkg-config`.
 
 ## [1.7.2] - 2026-06-21
 
@@ -559,7 +560,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Universal installer** (`install.sh`) for apt, dnf/yum, pacman, zypper, apk,
   xbps and eopkg, with a minimal-install dependency check.
 
-[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/JamilleJung/wireguard-tui/compare/v1.8.0...HEAD
 [1.5.0]: https://github.com/JamilleJung/wireguard-tui/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/JamilleJung/wireguard-tui/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/JamilleJung/wireguard-tui/compare/v1.3.5...v1.4.0

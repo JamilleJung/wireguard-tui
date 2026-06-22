@@ -140,6 +140,13 @@ Not sure which to pick? Run `uname -m`: `x86_64` → x86_64, `i686`/`i386` → i
 The first-party packages install `wg-tui`, `wg-helper`, and the authorization
 rule. They do not install GUI libraries.
 
+**Fedora / RHEL / Rocky** — install from COPR:
+
+```sh
+dnf copr enable jamillejung/wireguard-tui
+sudo dnf install wireguard-tui
+```
+
 ### 🛠️ Build from source
 
 ```sh

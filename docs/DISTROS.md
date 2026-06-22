@@ -76,8 +76,8 @@ This table is the manual equivalent, plus the two distro-specific gotchas
 |---|---|---|---|---|
 | **Debian / Raspberry Pi OS** | `apt install wireguard-tools` | `apt install openresolv` *(minimal Debian has none - this is the classic failure)* | systemd ✔ | none active (nftables present, empty) |
 | **Ubuntu / Mint / Pop!_OS** | `apt install wireguard-tools` | already covered by **systemd-resolved** (default) | systemd ✔ | `ufw`, installed but **inactive** by default |
-| **Fedora** | `dnf install wireguard-tools` | covered by **systemd-resolved** (default) | systemd ✔ | **firewalld active** |
-| **RHEL / Rocky / Alma / CentOS Stream** | `dnf install wireguard-tools` | `dnf install systemd-resolvconf` or enable systemd-resolved | systemd ✔ | **firewalld active** |
+| **Fedora** | `dnf install wireguard-tools` | covered by **systemd-resolved** (default) | systemd ✔ | **firewalld active** ¹ |
+| **RHEL / Rocky / Alma / CentOS Stream** | `dnf install wireguard-tools` | `dnf install systemd-resolvconf` or enable systemd-resolved | systemd ✔ | **firewalld active** ¹ |
 | **Arch / Manjaro / EndeavourOS** | `pacman -S wireguard-tools` | `pacman -S openresolv` (unless using systemd-resolved) | systemd ✔ | none active |
 | **openSUSE Leap / Tumbleweed** | `zypper install wireguard-tools` | `zypper install openresolv` or systemd-resolved | systemd ✔ | **firewalld active** (Leap) |
 | **Alpine** | `apk add wireguard-tools` | `apk add openresolv` | **OpenRC** ✗ (no systemd unit) | none active (`awall`/iptables optional) |
@@ -92,6 +92,12 @@ On OpenRC/runit you enable boot-time tunnels with the distro's own service manag
 **NixOS:** out of scope for this file-based tool - manage WireGuard declaratively in
 `configuration.nix` (`networking.wireguard.*`) instead, or run the app only to
 inspect/QR existing tunnels.
+
+**¹ SELinux (Fedora / RHEL):** On systems with SELinux enforcing, the `wg-helper`
+binary installed under `/usr/lib/` may need its context restored:
+`sudo restorecon -v /usr/lib/wireguard-tui/wg-helper` (or
+`/usr/lib/wireguard-gui/wg-helper` for the GUI). If `pkexec` or `sudo` still
+denies execution, check the audit log: `sudo ausearch -m avc -ts recent`.
 
 ---
 

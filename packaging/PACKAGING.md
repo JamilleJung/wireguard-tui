@@ -27,7 +27,10 @@ to `ssh://aur@aur.archlinux.org/wireguard-tui.git`. Bump `pkgver` per release.
 
 Build on **COPR** (SCM build against the repo + tagged `Source0` tarball), or
 locally with `rpmbuild -ba`. Runs `cargo test` in `%check`. Bump `Version` per
-release.
+release. The TUI needs no GUI libraries — only `cargo`, `rust`, `gcc`, and
+`pkgconf-pkg-config` at build time, plus `wireguard-tools` and `polkit` at
+runtime. `ExclusiveArch` covers `x86_64 aarch64` (static binaries ship for
+both).
 
 ## Debian / Ubuntu (.deb)
 
