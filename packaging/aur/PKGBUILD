@@ -1,9 +1,9 @@
 # Maintainer: jamillejung <izeystudio@gmail.com>
 pkgname=wireguard-tui
-pkgver=1.5.5
+pkgver=1.8.0
 pkgrel=1
 pkgdesc="A native Linux terminal UI (TUI) for managing WireGuard tunnels"
-arch=('x86_64')
+arch=('x86_64' 'aarch64')
 url="https://github.com/JamilleJung/wireguard-tui"
 license=('MIT')
 # Pure Rust, no GUI/C libraries: only wireguard-tools at runtime (+ polkit for
