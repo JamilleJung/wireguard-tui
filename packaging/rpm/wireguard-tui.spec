@@ -16,6 +16,7 @@ BuildRequires:  pkgconf-pkg-config
 
 Requires:       wireguard-tools
 Requires:       polkit
+Recommends:     systemd-resolved
 
 %description
 A native Linux terminal UI for managing WireGuard tunnels: tunnel list with

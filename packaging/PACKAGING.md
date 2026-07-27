@@ -30,7 +30,10 @@ locally with `rpmbuild -ba`. Runs `cargo test` in `%check`. Bump `Version` per
 release. The TUI needs no GUI libraries — only `cargo`, `rust`, `gcc`, and
 `pkgconf-pkg-config` at build time, plus `wireguard-tools` and `polkit` at
 runtime. `ExclusiveArch` covers `x86_64 aarch64` (static binaries ship for
-both).
+both). `systemd-resolved` is a soft dependency for tunnels with `DNS =`.
+RHEL-family systems provide `resolvconf` as a `resolvectl` compatibility shim;
+when that shim is installed but inactive, enable it explicitly with
+`sudo systemctl enable --now systemd-resolved` or run `wg-tui setup`.
 
 ## Debian / Ubuntu (.deb)
 
