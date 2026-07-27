@@ -4,13 +4,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.9.0] - 2026-07-27
 
 ### Fixed
 - **RHEL-family DNS activation.** Detect when `resolvconf` is the `resolvectl`
   compatibility shim but `systemd-resolved` is inactive; `doctor` now warns,
   `setup` offers a confirmation-based repair, the installer uses the correct
   RPM package, and activation errors are shown in a wrapped popup.
+  Previously a present-but-inactive shim was reported as healthy and tunnels
+  with a `DNS =` line still failed to come up. Thanks to @TinnerKun.
+
+### Security
+- Updated `anyhow` to 1.0.104, clearing RUSTSEC-2026-0190.
 
 ## [1.8.0] - 2026-06-23
 
