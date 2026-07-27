@@ -60,8 +60,9 @@ connect").
 - **PrivateKey** — your secret (see above).
 - **Address** — your IP *inside* the tunnel, e.g. `10.100.0.17/24` (assigned by
   the server; not your normal LAN IP).
-- **DNS** — DNS server(s) to use while connected, e.g. `1.1.1.1`. Optional; needs a
-  resolvconf provider.
+- **DNS** — DNS server(s) to use while connected, e.g. `1.1.1.1`. Optional;
+  needs a working resolvconf provider (`wg-tui doctor` checks it and
+  `wg-tui setup` can repair it).
 - **ListenPort / MTU** — advanced, usually blank (auto). MTU sometimes needs
   lowering on flaky links.
 

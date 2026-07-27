@@ -29,5 +29,10 @@ require 'cargo build --release' 'release build step'
 require 'runuser -u "\$REAL_USER"|su - "\$REAL_USER"' 'non-root cargo build handoff'
 require 'packaging/49-wireguard-tui\.rules' 'polkit helper rule install'
 reject 'packaging/wg-helper' 'deleted shell helper path'
+require 'readlink -f.*resolvconf' 'resolvectl shim detection'
+require 'systemctl is-active --quiet systemd-resolved\.service' 'active resolver service probe'
+require 'systemctl enable --now systemd-resolved' 'manual inactive-shim recovery'
+require 'dnf\|yum\).*systemd-resolved' 'RHEL-family resolver package'
+reject 'dnf\|yum\).*openresolv' 'unavailable RHEL-family openresolv package'
 
 echo "installer sanity tests passed"

@@ -264,27 +264,65 @@ verify_runtime_deps() {
         || warn "wireguard-tools (wg/wg-quick) not found — the app needs them at runtime."
 }
 
-# wg-quick needs a resolvconf provider to apply a config's `DNS =` line. Install
-# one (best-effort) when it's missing and systemd-resolved isn't handling DNS -
-# the fix for minimal Debian, where tunnels with DNS= otherwise fail to connect.
+resolvconf_uses_resolvectl() {
+    local resolver_path resolver_target
+    command -v resolvconf >/dev/null 2>&1 || return 1
+    resolver_path="$(command -v resolvconf)"
+    resolver_target="$(readlink -f "$(command -v resolvconf)" 2>/dev/null || printf '%s' "$resolver_path")"
+    [ "$(basename "$resolver_target")" = "resolvectl" ]
+}
+
+systemd_resolved_active() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl is-active --quiet systemd-resolved.service
+    else
+        [ -d /run/systemd/resolve ]
+    fi
+}
+
+warn_enable_resolved() {
+    warn "resolvconf is the resolvectl shim, but systemd-resolved is inactive."
+    warn "Run: sudo systemctl enable --now systemd-resolved"
+    warn "Or run: wg-tui setup"
+}
+
+# wg-quick needs a working resolvconf compatibility command to apply a config's
+# `DNS =` line. Install one best-effort when missing, but never enable a network
+# service silently.
 ensure_resolvconf() {
-    command -v resolvconf >/dev/null 2>&1 && return 0
-    [ -d /run/systemd/resolve ] && return 0   # systemd-resolved already handles DNS=
+    if command -v resolvconf >/dev/null 2>&1; then
+        if resolvconf_uses_resolvectl && ! systemd_resolved_active; then
+            warn_enable_resolved
+        else
+            ok "resolvconf provider available."
+        fi
+        return 0
+    fi
+
     say "Installing a resolvconf provider (so tunnels with 'DNS =' can connect)"
     case "$PM" in
-        apt-get)      as_root apt-get install -y openresolv || true ;;
-        dnf|yum)      as_root "$PM" install -y openresolv || true ;;
+        apt-get)
+            if systemd_resolved_active; then
+                as_root apt-get install -y systemd-resolvconf || true
+            else
+                as_root apt-get install -y openresolv || true
+            fi
+            ;;
+        dnf|yum)      as_root "$PM" install -y systemd-resolved || true ;;
         pacman)       as_root pacman -Sy --noconfirm openresolv || true ;;
         zypper)       as_root zypper --non-interactive install openresolv || true ;;
         apk)          as_root apk add openresolv || true ;;
         xbps-install) as_root xbps-install -Sy openresolv || true ;;
         eopkg)        as_root eopkg install -y openresolv || true ;;
     esac
-    if command -v resolvconf >/dev/null 2>&1; then
-        ok "resolvconf provider installed."
-    else
+
+    if ! command -v resolvconf >/dev/null 2>&1; then
         warn "Could not install a resolvconf provider; tunnels with a 'DNS =' line"
-        warn "may fail until you install 'openresolv' (or use systemd-resolved)."
+        warn "may fail until a compatible provider is installed."
+    elif resolvconf_uses_resolvectl && ! systemd_resolved_active; then
+        warn_enable_resolved
+    else
+        ok "resolvconf provider installed."
     fi
 }
 
