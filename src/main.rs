@@ -474,14 +474,13 @@ fn run_doctor() -> i32 {
     report.exit_code()
 }
 
-/// Offer to run a privileged install command after confirmation, picking a
-/// privilege method that works here (root / sudo / su). Debian-minimal often has
-/// no sudo, so fall back to `su` (asks for the ROOT password). `label` names what
-/// is installed; `hint` is the manual fallback to print on skip/failure.
-fn offer_root_install(label: &str, cmd: &str, hint: &str) {
+/// Offer to run a privileged action after confirmation, picking a privilege
+/// method that works here (root / sudo / su). Debian-minimal often has no sudo,
+/// so fall back to `su` (asks for the ROOT password).
+fn offer_root_action(label: &str, cmd: &str, hint: &str) -> bool {
     use std::io::Write as _;
-    let is_root = unsafe { libc::geteuid() } == 0;
-    let method = if is_root {
+
+    let method = if unsafe { libc::geteuid() } == 0 {
         "root"
     } else if doctor::can_sudo() {
         "sudo"
@@ -491,45 +490,63 @@ fn offer_root_install(label: &str, cmd: &str, hint: &str) {
         "none"
     };
     if method == "none" {
-        println!("{label} can't be installed automatically (neither sudo nor su is available).");
-        println!("Install it as root, e.g.: {hint}");
-        return;
+        println!("{label} can't be changed automatically (neither sudo nor su is available).");
+        println!("Run it as root, e.g.: {hint}");
+        return false;
     }
+
     let shown = match method {
         "root" => format!("sh -c '{cmd}'"),
         "sudo" => format!("sudo sh -c '{cmd}'"),
         _ => format!("su root -c '{cmd}'   (asks for the ROOT password)"),
     };
-    println!("{label} can be installed with:");
+    println!("{label} can be changed with:");
     println!("    {shown}");
-    print!("Install now? [y/N] ");
+    print!("Run now? [y/N] ");
     let _ = std::io::stdout().flush();
+
     let mut line = String::new();
-    if std::io::stdin().read_line(&mut line).is_ok() && line.trim().eq_ignore_ascii_case("y") {
-        let status = match method {
-            "root" => std::process::Command::new("sh").arg("-c").arg(cmd).status(),
-            "sudo" => std::process::Command::new("sudo")
-                .arg("sh")
-                .arg("-c")
-                .arg(cmd)
-                .status(),
-            _ => std::process::Command::new("su")
-                .arg("root")
-                .arg("-c")
-                .arg(cmd)
-                .status(),
-        };
-        match status {
-            Ok(s) if s.success() => println!("Done."),
-            _ => println!("Install didn't complete. Run it manually: {hint}"),
+    if std::io::stdin().read_line(&mut line).is_err() || !line.trim().eq_ignore_ascii_case("y") {
+        println!("Skipped. Run manually: {hint}");
+        return false;
+    }
+
+    let status = match method {
+        "root" => std::process::Command::new("sh").arg("-c").arg(cmd).status(),
+        "sudo" => std::process::Command::new("sudo")
+            .arg("sh")
+            .arg("-c")
+            .arg(cmd)
+            .status(),
+        _ => std::process::Command::new("su")
+            .arg("root")
+            .arg("-c")
+            .arg(cmd)
+            .status(),
+    };
+    match status {
+        Ok(status) if status.success() => {
+            println!("Done.");
+            true
         }
-    } else {
-        println!("Skipped. Install manually: {hint}");
+        _ => {
+            println!("Couldn't complete the action. Run it manually: {hint}");
+            false
+        }
     }
 }
 
+fn offer_enable_resolved() -> bool {
+    println!("The resolvectl compatibility shim needs systemd-resolved to be active.");
+    offer_root_action(
+        "systemd-resolved",
+        doctor::enable_resolved_command(),
+        &doctor::enable_resolved_hint(),
+    )
+}
+
 /// `wg-tui setup` - guided, confirmation-based fix for missing requirements.
-/// Never connects tunnels or enables start-on-boot.
+/// Never connects tunnels or enables tunnel start-on-boot.
 fn run_setup() -> i32 {
     let report = doctor::system_check();
     println!("wg-tui setup\n");
@@ -546,27 +563,44 @@ fn run_setup() -> i32 {
     if tools_missing {
         if let Some(cmd) = doctor::install_tools_command() {
             println!("WireGuard tools (wg/wg-quick) are missing.");
-            offer_root_install("WireGuard tools", &cmd, &doctor::install_tools_hint());
+            let _ = offer_root_action("WireGuard tools", &cmd, &doctor::install_tools_hint());
         } else {
             println!("Couldn't detect a package manager - install 'wireguard-tools' manually.");
         }
         println!();
     }
 
-    // Offer a resolvconf provider so tunnels with a 'DNS =' line can connect -
-    // the classic minimal-Debian gap (wg-quick aborts with "resolvconf: command
-    // not found"). systemd-resolved counts, so this only fires when neither is
-    // present. Non-critical: tunnels without a DNS line work regardless.
-    if !doctor::dns_ok()
-        && let Some(cmd) = doctor::install_resolvconf_command()
-    {
-        println!("Tunnels with a 'DNS =' line need a resolvconf provider (none found here).");
-        offer_root_install(
-            "A resolvconf provider",
-            &cmd,
-            &doctor::install_resolvconf_hint(),
-        );
-        println!();
+    // DNS support is optional, but a config with `DNS =` needs both a
+    // `resolvconf` compatibility command and its backing service.
+    match doctor::dns_setup_action(doctor::dns_resolver_state()) {
+        Some(doctor::DnsSetupAction::EnableResolved) => {
+            let _ = offer_enable_resolved();
+            println!();
+        }
+        Some(doctor::DnsSetupAction::InstallProvider) => {
+            println!(
+                "Tunnels with a 'DNS =' line need a working resolvconf compatibility command."
+            );
+            if let Some(cmd) = doctor::install_resolvconf_command() {
+                let installed = offer_root_action(
+                    "A resolvconf provider",
+                    &cmd,
+                    &doctor::install_resolvconf_hint(),
+                );
+                if installed
+                    && matches!(
+                        doctor::dns_resolver_state(),
+                        doctor::DnsResolverState::ResolvectlInactive
+                    )
+                {
+                    let _ = offer_enable_resolved();
+                }
+            } else {
+                println!("Install it manually: {}", doctor::install_resolvconf_hint());
+            }
+            println!();
+        }
+        None => {}
     }
 
     // Helper install can't be done safely from here - point at the installer.
@@ -580,7 +614,7 @@ fn run_setup() -> i32 {
         println!();
     }
 
-    println!("Setup never connects tunnels or enables start-on-boot - you stay in control.");
+    println!("Setup never connects tunnels or enables tunnel start-on-boot - you stay in control.");
     doctor::system_check().exit_code()
 }
 
