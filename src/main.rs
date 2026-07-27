@@ -1309,6 +1309,13 @@ fn self_update(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Re
     Ok(())
 }
 
+fn activation_failure_message(name: &str, raw: &str) -> String {
+    format!(
+        "Couldn't activate {name}:\n\n{}",
+        doctor::friendly_error(raw)
+    )
+}
+
 fn toggle_active(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
     let Some(idx) = app.state.selected() else {
         return Ok(());
@@ -1347,16 +1354,7 @@ fn toggle_active(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::
                 ));
             }
         }
-        Err(e) => {
-            // Map common, cryptic failures (e.g. missing resolvconf) to a clear
-            // fix; show recognised ones in a popup, the rest in the footer.
-            let fe = doctor::friendly_error(&e);
-            if fe == e.trim() {
-                app.flash(format!("Failed: {fe}"));
-            } else {
-                app.mode = Mode::Message(format!("Couldn't activate {name}:\n\n{fe}"));
-            }
-        }
+        Err(e) => app.mode = Mode::Message(activation_failure_message(&name, &e)),
     }
     app.reload();
     Ok(())
@@ -2666,4 +2664,19 @@ fn qr_lines(text: &str) -> Result<Vec<Line<'static>>, String> {
         y += step;
     }
     Ok(lines)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn activation_failure_message_preserves_multiline_unknown_error() {
+        let message = activation_failure_message(
+            "Drite",
+            "wg-quick up Drite:\n[#] ip link add Drite\nRTNETLINK failure",
+        );
+        assert!(message.starts_with("Couldn't activate Drite:"));
+        assert!(message.contains("[#] ip link add Drite\nRTNETLINK failure"));
+    }
 }

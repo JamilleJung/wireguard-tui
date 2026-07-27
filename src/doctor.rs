@@ -320,6 +320,16 @@ pub fn install_resolvconf_command() -> Option<String> {
 /// common, confusing failures (e.g. the missing-resolvconf one on Debian).
 pub fn friendly_error(raw: &str) -> String {
     let r = raw.trim();
+    let resolved_unavailable = r.contains("org.freedesktop.resolve1")
+        || (r.contains("Failed to set DNS configuration")
+            && (r.contains("resolvectl") || r.contains("systemd-resolved")));
+    if resolved_unavailable {
+        return format!(
+            "this tunnel's 'DNS =' reached the resolvectl shim, but \
+             systemd-resolved is unavailable - run: {}",
+            enable_resolved_hint()
+        );
+    }
     if r.contains("resolvconf") && r.contains("not found") {
         return format!(
             "this tunnel's 'DNS =' needs a resolvconf provider - install it: {}",
@@ -661,6 +671,21 @@ mod tests {
                 .as_deref()
                 .is_some_and(|fix| fix.contains("systemctl enable --now systemd-resolved"))
         );
+    }
+
+    #[test]
+    fn friendly_error_explains_inactive_systemd_resolved() {
+        let raw = "resolvconf -a Drite -m 0 -x: Could not activate remote peer \
+                   'org.freedesktop.resolve1': activation request failed: unknown unit";
+        let friendly = friendly_error(raw);
+        assert!(friendly.contains("systemd-resolved"));
+        assert!(friendly.contains("systemctl enable --now systemd-resolved"));
+    }
+
+    #[test]
+    fn friendly_error_preserves_unknown_errors() {
+        let raw = "wg-quick up Drite: RTNETLINK answers: File exists";
+        assert_eq!(friendly_error(raw), raw);
     }
 
     #[test]
