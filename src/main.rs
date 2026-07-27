@@ -511,17 +511,22 @@ fn offer_root_action(label: &str, cmd: &str, hint: &str) -> bool {
         return false;
     }
 
+    let safe_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+    let safe_cmd = format!("export PATH={safe_path}; {cmd}");
     let status = match method {
-        "root" => std::process::Command::new("sh").arg("-c").arg(cmd).status(),
+        "root" => std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&safe_cmd)
+            .status(),
         "sudo" => std::process::Command::new("sudo")
             .arg("sh")
             .arg("-c")
-            .arg(cmd)
+            .arg(&safe_cmd)
             .status(),
         _ => std::process::Command::new("su")
             .arg("root")
             .arg("-c")
-            .arg(cmd)
+            .arg(&safe_cmd)
             .status(),
     };
     match status {
