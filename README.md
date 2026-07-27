@@ -298,12 +298,14 @@ It checks:
 - helper authorization
 - systemd for start-on-boot
 - journald/logger availability for logs
-- `resolvconf` or systemd-resolved for configs with `DNS =`
+- a working `resolvconf` command for configs with `DNS =` (including the
+  backing `systemd-resolved` service when `resolvconf` is a `resolvectl` shim)
 
 `setup` is confirmation-based. It offers to install `wireguard-tools`, a
-resolvconf provider, and `/etc/wireguard` when missing. It does not connect
-tunnels, enable start-on-boot, delete configs, or install arbitrary config
-files. It points you at `install.sh` or packages for helper installation.
+resolvconf provider, activate an installed resolver shim, and create
+`/etc/wireguard` when missing. It does not connect tunnels, enable tunnel
+start-on-boot, delete configs, or install arbitrary config files. It points you
+at `install.sh` or packages for helper installation.
 
 ## 🛡️ Security and privilege model
 
@@ -445,8 +447,9 @@ not log private keys.
   staring at `0 B received` and slowly losing our minds. 🕰️🛸
 - `wg-tui doctor` reports missing `wg` or `wg-quick`: install
   `wireguard-tools`.
-- `DNS for tunnels (resolvconf)` is a warning: install `openresolv` or use
-  systemd-resolved if your configs use `DNS =`.
+- `DNS for tunnels (resolvconf)` is a warning: run `wg-tui setup`. On
+  RHEL/Fedora/Rocky, an installed `resolvectl` shim also needs
+  `systemd-resolved` active; `doctor` prints the manual command.
 - The helper prompts every time: run `./install.sh` or `./install.sh --polkit`
   so the installed helper path is authorized.
 - Kill switch fails: the tunnel must be active and the system needs nftables, iptables, or ip6tables available.

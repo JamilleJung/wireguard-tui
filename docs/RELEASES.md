@@ -31,6 +31,12 @@ By default it sets up a passwordless `sudoers` drop-in scoped to the helper;
 `./install.sh --polkit` writes a polkit rule instead, and `./install.sh uninstall`
 removes the installed files.
 
+For tunnels with `DNS =`, the installer installs the compatibility package
+provided by the detected distro. It does not silently enable
+`systemd-resolved`: on RHEL-family systems, run `wg-tui setup` for a
+confirmation-based repair or use the manual command printed by
+`wg-tui doctor`.
+
 > Note: `--polkit`, `--desktop`, and `uninstall` are flags for the **installer** (`install.sh`),
 > not for `wg-tui`. The `wg-tui` binary itself only accepts `wg-tui`,
 > `wg-tui doctor`, `wg-tui setup`, `wg-tui --version` and `wg-tui --help`.

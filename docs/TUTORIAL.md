@@ -386,11 +386,14 @@ generate keys, running config, kill switch, save-live, rename, and export.
 
 ## 11. 🐛 Troubleshooting
 
-### "resolvconf: command not found" / a tunnel with DNS = won't connect
+### DNS setup fails / a tunnel with DNS = won't connect
 
 If a tunnel's `[Interface]` has a `DNS =` line, `wg-quick` calls `resolvconf` to
-apply it. On minimal Debian (and bare Arch/Alpine/Void) there is no `resolvconf`
-binary, so activation fails like this:
+apply it. A native `resolvconf` provider works directly. When `resolvconf`
+points to `resolvectl`, `systemd-resolved` must also be active.
+
+On minimal Debian (and bare Arch/Alpine/Void) there may be no `resolvconf`
+binary, producing:
 
 ```
 [#] resolvconf -a wg0 -m 0 -x
@@ -398,7 +401,7 @@ binary, so activation fails like this:
 ```
 
 `wg-tui` (or `wireguard-tui`) rewrites this into a friendly message telling you to install a provider.
-Fix it once:
+For Debian/Arch-style systems, fix it once:
 
 ```sh
 sudo apt install openresolv        # Debian/Arch/etc.
@@ -406,10 +409,18 @@ sudo apt install openresolv        # Debian/Arch/etc.
 su root -c 'apt install openresolv'
 ```
 
-If **systemd-resolved** is already active (the default on Ubuntu and Fedora), this
-is already covered and you need nothing. `wg-tui doctor` (or `wireguard-tui doctor`) shows a
-"DNS for tunnels (resolvconf)" line, and `wg-tui setup` (or `wireguard-tui setup`) offers to install the
-provider for you.
+On RHEL/Rocky/Alma/CentOS Stream, install the compatibility shim and activate
+its backing service:
+
+```sh
+sudo dnf install systemd-resolved
+sudo systemctl enable --now systemd-resolved
+```
+
+`wg-tui doctor` (or `wireguard-tui doctor`) checks the command and backing
+service separately and prints the manual command. `wg-tui setup` offers to
+install or activate the provider after confirmation. The source installer
+installs missing packages but never enables `systemd-resolved` silently.
 
 ### "<user> is not in the sudoers file"
 

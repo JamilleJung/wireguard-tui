@@ -76,8 +76,8 @@ This table is the manual equivalent, plus the two distro-specific gotchas
 |---|---|---|---|---|
 | **Debian / Raspberry Pi OS** | `apt install wireguard-tools` | `apt install openresolv` *(minimal Debian has none - this is the classic failure)* | systemd ✔ | none active (nftables present, empty) |
 | **Ubuntu / Mint / Pop!_OS** | `apt install wireguard-tools` | already covered by **systemd-resolved** (default) | systemd ✔ | `ufw`, installed but **inactive** by default |
-| **Fedora** | `dnf install wireguard-tools` | covered by **systemd-resolved** (default) | systemd ✔ | **firewalld active** ¹ |
-| **RHEL / Rocky / Alma / CentOS Stream** | `dnf install wireguard-tools` | `dnf install systemd-resolvconf` or enable systemd-resolved | systemd ✔ | **firewalld active** ¹ |
+| **Fedora** | `dnf install wireguard-tools` | `dnf install systemd-resolved`; if its `resolvectl` shim is inactive, enable the service | systemd ✔ | **firewalld active** ¹ |
+| **RHEL / Rocky / Alma / CentOS Stream** | `dnf install wireguard-tools` | `dnf install systemd-resolved`, then `systemctl enable --now systemd-resolved` | systemd ✔ | **firewalld active** ¹ |
 | **Arch / Manjaro / EndeavourOS** | `pacman -S wireguard-tools` | `pacman -S openresolv` (unless using systemd-resolved) | systemd ✔ | none active |
 | **openSUSE Leap / Tumbleweed** | `zypper install wireguard-tools` | `zypper install openresolv` or systemd-resolved | systemd ✔ | **firewalld active** (Leap) |
 | **Alpine** | `apk add wireguard-tools` | `apk add openresolv` | **OpenRC** ✗ (no systemd unit) | none active (`awall`/iptables optional) |
@@ -101,10 +101,20 @@ denies execution, check the audit log: `sudo ausearch -m avc -ts recent`.
 
 ---
 
-## 5. The `DNS =` / resolvconf gotcha (especially minimal Debian)
+## 5. The `DNS =` / resolvconf gotcha
 
-If a tunnel's `[Interface]` has a `DNS =` line, `wg-quick` calls **`resolvconf`** to
-apply it. On minimal Debian (and bare Arch/Alpine/Void) there is no `resolvconf`
+If a tunnel's `[Interface]` has a `DNS =` line, `wg-quick` calls
+**`resolvconf`** to apply it. The command must exist and its backing service
+must work:
+
+```text
+native resolvconf                         -> ready
+resolvconf -> resolvectl + resolved active   -> ready
+resolvconf -> resolvectl + resolved inactive -> enable systemd-resolved
+no resolvconf command                        -> install the distro provider
+```
+
+On minimal Debian (and bare Arch/Alpine/Void) there may be no `resolvconf`
 binary, so activation aborts with:
 
 ```
@@ -112,7 +122,7 @@ binary, so activation aborts with:
 /usr/bin/wg-quick: line 32: resolvconf: command not found
 ```
 
-**Fix - install a provider once:**
+**Debian/Arch-style fix — install a provider once:**
 
 ```sh
 sudo apt install openresolv        # Debian/Arch/etc.
@@ -120,13 +130,24 @@ sudo apt install openresolv        # Debian/Arch/etc.
 su root -c 'apt install openresolv'
 ```
 
-If **systemd-resolved** is active (`/run/systemd/resolve` exists - the default on
-Ubuntu and Fedora), it already satisfies this and you need nothing.
+On current RHEL/Rocky/Alma/CentOS Stream, the `systemd-resolved` package
+provides `resolvconf` as a symlink to `resolvectl`, but the service may be
+disabled. Install and activate it explicitly:
 
-You don't have to remember any of that: `wg-tui doctor` (or `wireguard-tui doctor`) shows a **"DNS for tunnels
-(resolvconf)"** line, `wg-tui setup` (or `wireguard-tui setup`) offers to install the provider, and
-`./install.sh` installs it automatically on a minimal box. The fix **persists** - it's
-a normal installed package.
+```sh
+sudo dnf install systemd-resolved
+sudo systemctl enable --now systemd-resolved
+```
+
+An active systemd-resolved service is not enough by itself if the
+`resolvconf` compatibility command is absent: `wg-quick` executes that command
+by name.
+
+You don't have to remember the matrix: `wg-tui doctor` (or
+`wireguard-tui doctor`) checks both the command and the backing service and
+prints the manual repair. `wg-tui setup` offers the same repair after
+confirmation. `./install.sh` installs missing packages but never enables a
+network service silently.
 
 ---
 
