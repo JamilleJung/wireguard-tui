@@ -4,13 +4,81 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.9.2] - 2026-11-02
 
-### Documentation
-- Refresh all current guides for 1.9.1: keyboard controls, installer defaults,
-  package authorization, signed updates and packed-binary audits, backup limits,
-  DNS/service setup, and security boundaries. Published binaries retain their
-  build-time embedded guide and changelog until a future release.
+### Fixed
+- Share full config validation across frontend/helper, validate every repeated
+  field and canonical base64 padding, and reject malformed/misplaced directives,
+  invalid CIDRs, misleading Unicode/header whitespace and out-of-range keepalive
+  values. Preserve supported wg-quick options, repeated fields/comments and scoped IPv6 endpoints.
+- Keep imported-name sanitization valid after truncation; propagate helper/list
+  errors during uniqueness checks rather than risking a collision overwrite.
+- Keep saved-file naming and backups independent of live interface-status
+  queries, so offline recovery still works when the VPN status query fails.
+- Export every tunnel or report an error. Publish completed `0600` exports/logs
+  atomically, preserving previous files on failure and other hardlink names.
+  New backup names never clobber same-second archives.
+- Bound and validate backup files/ZIP metadata, reject linked/unsafe archive
+  paths and duplicate central-directory names, and preflight all configs.
+- Bound QR image size/dimensions and examine all detected grids; skip unrelated
+  or broken grids and reject multiple distinct tunnel configs.
+- Include runtime-only peers and actual runtime settings in details; saturate
+  aggregate counters and avoid treating future handshakes as current health.
+- Keep helper pipes/stdin bounded and concurrently drained, enforce deadlines,
+  and return even when escaped descendants retain output pipes.
+- Preflight and own complete verified update bundles through installation,
+  clean private staging on every exit path, and restrict redirects to HTTPS.
+- Validate installer options and locked source builds; replace old authorization
+  only after the selected grant is valid, failing clearly on missing pkexec or
+  group-enrollment/validation failures. Require safe absolute prefixes and
+  root-owned, protected, symlink-free install/grant paths.
+- Fix stale selected-tunnel details and preserve active drafts during refresh;
+  keep log cursor/visual-selection copies aligned with the displayed snapshot.
+- Use exclusive private editor directories with cleanup and bounded clipboard
+  delivery/exit; make unknown prerequisite states return a warning status.
+- Move helper-backed reads/mutations, imports, backups and key generation to
+  serialized workers; preserve newer drafts and navigation on completion.
+  Reject oversized/special config input files without blocking on FIFOs.
+- Scroll narrow-terminal documents through their final wrapped line, keep
+  backup actions responsive, and reuse terminal state after the external editor.
+
+### Security
+- Require trusted executable helper paths and directory ancestry in release
+  builds; remove release build-tree and cross-application fallback selection.
+  Background reads check polkit noninteractively instead of opening repeated
+  authentication dialogs.
+- Refuse unsafe root config/directory links and ownership, use exclusive
+  no-clobber helper backups, and serialize mutations with a bounded shared lock.
+- Allow one managed kill switch at a time; use atomic nft batches, preflight
+  IPv4/IPv6 fallback transactions, require complete rule sets for status, and
+  retain protection when a stop fails or interface state is unknown.
+- Redact secrets in prefixed/equals-bearing log lines and malformed-key errors;
+  validate generated key output before use.
+
+### Changed
+- ZIP restore limits: 64 MiB archive, 4,096 entries, 1,024 configs, 1 MiB per
+  config and 16 MiB combined config text. Restore remains sequential after full
+  preflight; later operational failures can still leave a partial restore.
+- QR import limits: 32 MiB source image, 4096 × 4096 pixels and a configured
+  128 MiB decoder-allocation budget. A single valid distinct tunnel is required.
+- Refresh current guides, embedded Help, release instructions and package
+  versions for the audited behavior; preserve historical release entries.
+
+### Validation
+- Add regression coverage for malformed/repeated configs, canonical keys,
+  symlinks/hardlinks/FIFOs, failed atomic exports, hidden ZIP duplicates, QR
+  selection/limits, live peer merging, blocked stdin and escaped output pipes,
+  updater cleanup/assets, installer grant switching and firewall transactions.
+  Privileged integration checks use isolated disposable Linux environments.
+
+### Upgrade notes
+- Install the matching app **and helper**. A user-owned adjacent helper or a
+  stale helper from another application is no longer selected in release builds.
+- Reapply existing kill-switch rules once (off/on) after upgrading. Only one
+  managed switch can be enabled, and IPv6-capable fallback hosts need both
+  iptables/ip6tables and their restore tools. Keep another access path available.
+- Correct any newly rejected malformed fields before saving. Copy a hardlinked
+  user backup to a normal single-link file before restore/export.
 
 ## [1.9.1] - 2026-11-02
 

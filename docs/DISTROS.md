@@ -1,6 +1,6 @@
 # Linux distro, DNS, and service guide
 
-This guide describes the 1.9.1 installer and runtime requirements. Package names
+This guide describes the 1.9.2 installer and runtime requirements. Package names
 and system policy can vary by distro release; check the package manager's output
 and `wg-tui doctor` on the actual host.
 
@@ -141,7 +141,7 @@ administrator maintain the config directly as root.
 | Runtime kill switch | No app persistence; normally lost at reboot, may be restored by another firewall |
 | Forwarding/NAT/firewall policy | Depends on the administrator's persistent service configuration |
 
-App deactivation/delete/rename attempts kill-switch cleanup; exiting the app
+App deactivation/delete/rename retains protection on failed/unknown stop; exiting the app
 or stopping the tunnel elsewhere does not guarantee cleanup. Firewall reloads
 can also remove the rules. After upgrading, toggle an existing kill switch
 off/on to install current rules. Keep an alternate administrative access path
@@ -151,3 +151,68 @@ Systems without systemd can still use connect/edit/import, but the app's
 start-on-boot toggle is unavailable. Without journald, the Log tab explains the
 missing journal source. Avoid managing one interface simultaneously with this
 app, NetworkManager, and an independent service configuration.
+
+## 1.9.2 integration requirements
+
+Before privileged writes or helper grants, `PREFIX` must be an absolute ASCII
+path containing only letters, digits, `/`, `_`, `.` and `-`, with no empty,
+`.` or `..` components or trailing slash. Existing directory ancestors must be
+root-owned without group/other write permission; symlinks are refused. A
+group-writable `/usr/local` can therefore fail these checks. An administrator
+must choose or prepare a protected path; the installer does not take ownership
+of caller directories. `--polkit` supports only `/usr` or `/usr/local`, matching
+the bundled rule. Custom sudoers prefixes still require matching frontend helper
+discovery configuration.
+
+Installer options are validated; unknown options fail instead of being ignored.
+Source builds use the lockfile. Switching sudoers/polkit modes installs and
+validates the selected grant before removing the previous grant. Failed sudoers
+validation or group enrollment reports failure and keeps prior authorization.
+`--polkit` requires pkexec up front; it does not install a rule and then claim
+success without the escalation tool. Packages still do not enroll users.
+
+Release helper discovery uses this project's own standard `/usr/local/lib/`
+and `/usr/lib/` paths, or an adjacent **trusted** executable. The executable must
+be root-owned, executable and not group/other writable; its directory ancestry
+must also be trusted. A normal user-owned extracted helper is not automatically
+trusted: install the verified bundle first. Release builds no longer fall back
+to the source build directory or another application's helper. Debug overrides
+remain available for development; they do not create an authorization grant.
+
+Background read-only requests use a noninteractive polkit check before pkexec,
+so missing authorization produces an actionable error instead of repeated
+password dialogs. Explicit mutating actions can still request authentication.
+Helper IPC drains input/output concurrently, retains at most 4 MiB per output
+stream, and has an overall 90-second deadline plus bounded pipe cleanup. Local
+key-generation commands have a 10-second deadline. A privileged process that
+the UI user cannot signal may finish independently after a UI-side timeout;
+check actual tunnel state before retrying.
+
+Only **one helper-managed kill switch** can be active at a time across managed
+tunnels. Turn the existing one off before enabling another. The helper requires
+an already-active interface; it can assign an unused runtime WireGuard fwmark
+without changing the saved config. It does not activate a stopped tunnel as a
+side effect of enabling a switch.
+
+The helper prefers nftables and requires a real hooked filter OUTPUT base chain.
+It applies its complete rule set as one nft batch. The fallback requires
+`iptables` and `iptables-restore`; when the kernel exposes IPv6 support it also
+requires `ip6tables` and `ip6tables-restore`, even before a non-loopback IPv6
+address is assigned. Both families are preflighted; commits are atomic **per
+family**, not one transaction across IPv4 and IPv6. Failures are reported.
+
+The rules allow loopback, the selected tunnel, its marked transport traffic,
+and detected established SSH return traffic when `SSH_CONNECTION` reaches the
+helper, then reject other host output ahead of existing allows. Exact comments
+isolate tunnel names; status requires the complete expected rule set. This is
+host-output control, not server forwarding/NAT or a general no-leak guarantee.
+It may disrupt remote access or interact with another firewall manager.
+
+Down/delete/rename retain protection if the interface is still active or its
+state is unknown, and report stop/cleanup failures. A failed operation can
+leave a tunnel stopped or partially changed; inspect the error and current
+state before retrying. App exit does not clear rules. External service changes
+may leave stale rules, and firewall reloads may remove them. No persistence
+daemon is installed. After upgrading, reapply an existing switch (off/on) to
+install current rules, planning for that brief unprotected interval and keeping
+another administrative access path available.

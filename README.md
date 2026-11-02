@@ -2,17 +2,17 @@
 
 # wireguard-tui - `wg-tui`
 
-A native Linux terminal UI for plain WireGuard tunnels. Current release: **1.9.1**.
+A native Linux terminal UI for plain WireGuard tunnels. Current release: **1.9.2**.
 
 [![CI](https://github.com/JamilleJung/wireguard-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/JamilleJung/wireguard-tui/actions/workflows/ci.yml)
 [![Releases](https://img.shields.io/badge/Releases-latest-2ea44f)](https://github.com/JamilleJung/wireguard-tui/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-<img src="docs/screenshot.svg" alt="Illustrative wg-tui 1.9.1 interface with fictional tunnel data" width="900">
+<img src="docs/screenshot.svg" alt="Illustrative wg-tui interface with fictional tunnel data" width="900">
 
 </div>
 
-*Illustrative 1.9.1 UI example rendered from application code with fictional tunnel data.*
+*Illustrative UI example rendered from application code with fictional tunnel data.*
 
 Built with Rust and ratatui, `wg-tui` manages `/etc/wireguard/*.conf` through
 `wg`, `wg-quick`, and a small privileged Rust helper. It works in a local
@@ -80,16 +80,16 @@ helper override; see CONTRIBUTING.md.
 
 ### Signed prebuilt releases
 
-[Release 1.9.1](https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.9.1)
+[Release 1.9.2](https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.9.2)
 provides:
 
 | Artifact | Host |
 |---|---|
-| `wireguard-tui-1.9.1-x86_64-linux.tar.gz` | 64-bit Intel/AMD |
-| `wireguard-tui-1.9.1-i686-linux.tar.gz` | 32-bit Intel/AMD |
-| `wireguard-tui-1.9.1-aarch64-linux.tar.gz` | 64-bit ARM |
-| `wireguard-tui-1.9.1-armv7-linux.tar.gz` | 32-bit ARMv7 |
-| `wireguard-tui_1.9.1-1_amd64.deb` | Debian/Ubuntu amd64 |
+| `wireguard-tui-1.9.2-x86_64-linux.tar.gz` | 64-bit Intel/AMD |
+| `wireguard-tui-1.9.2-i686-linux.tar.gz` | 32-bit Intel/AMD |
+| `wireguard-tui-1.9.2-aarch64-linux.tar.gz` | 64-bit ARM |
+| `wireguard-tui-1.9.2-armv7-linux.tar.gz` | 32-bit ARMv7 |
+| `wireguard-tui_1.9.2-1_amd64.deb` | Debian/Ubuntu amd64 |
 
 The tarballs contain static musl application/helper binaries, `install.sh`,
 installer assets under `packaging/`, README, and license. Choose the archive
@@ -100,8 +100,8 @@ matching `uname -m` (`armv7l` uses armv7). Verify it **before** extraction:
 minisign -Vm SHA256SUMS -P RWTyrstfFCLYkpMwbcyBRl+aGGcJikl35GY1esJDO6HTEJFIMvUC8f1Q
 sha256sum -c SHA256SUMS --ignore-missing --strict
 # Require an OK line for the exact artifact you chose.
-tar -xzf wireguard-tui-1.9.1-x86_64-linux.tar.gz
-cd wireguard-tui-1.9.1-x86_64-linux
+tar -xzf wireguard-tui-1.9.2-x86_64-linux.tar.gz
+cd wireguard-tui-1.9.2-x86_64-linux
 ./install.sh
 ```
 
@@ -112,7 +112,7 @@ login, use `./install.sh --allow-root` after verification. The attached
 verified only against an untrusted key downloaded with the artifact is not a
 trust check. Missing or invalid signing files are a reason to stop installation.
 
-For a verified `.deb`, install with `sudo apt install ./wireguard-tui_1.9.1-1_amd64.deb`.
+For a verified `.deb`, install with `sudo apt install ./wireguard-tui_1.9.2-1_amd64.deb`.
 It includes a launcher and polkit rule but no script to create the `wireguard`
 group or add users. See [authorization](#authorization) and the
 [packaging guide](packaging/PACKAGING.md). Distro recipes are supplied for
@@ -160,43 +160,104 @@ cancel. Hidden files are not listed.
 Log filters affect the view and `Y` copy; `w` saves the full fetched snapshot.
 
 Copy tries native clipboard tools first (`wl-copy`, `xclip`, `xsel`, with the
-order adjusted for Wayland), then OSC 52. Over SSH, a working remote display
+order adjusted for Wayland), then OSC 52. Each native helper attempt has a
+2-second delivery/exit deadline. Over SSH, a working remote display
 clipboard can take precedence; otherwise OSC 52 requires support in the local
 terminal and multiplexer. The "copied" status for OSC 52 means the escape was
 sent, not that the terminal accepted it.
 
+Most helper-backed tunnel/config/import/backup/key-generation actions run on
+serialized workers while navigation/help/log reading remain available. Conflicting
+actions report that the app is busy. The external editor and cooked-terminal
+update install deliberately take the foreground; local directory browsing,
+clipboard attempts and log-file writes can still briefly wait. Leaving the app
+does not roll back an operation that has already started. Backup actions return
+to the main view; press `B` to reopen the manager.
+
 ## Editing, backups, and kill switch limits
 
-The editor is `$VISUAL`, then `$EDITOR`, then `nano`; its command is split on
-whitespace, not parsed as shell syntax. Use a wrapper script for complex editor
-arguments. The app suspends the terminal UI and opens a `0600` temporary file,
-then validates and removes it. Configs remain plain text: inline `#` comments
+Imported config files and external-editor output must be regular files at most
+1 MiB. Named pipes and other special files are rejected without waiting for
+a writer.
+
+The editor is `$VISUAL`, then `$EDITOR`, then `nano`; command words support shell
+quoting but no shell expansion or execution. Use a wrapper script for pipelines
+or environment expansion. The app suspends and restores its existing terminal
+state, opens a `0600` draft in an exclusive `0700` temporary directory, then
+validates and cleans the directory, including editor swap/backup files. Configs remain plain text: inline `#` comments
 and repeated Address/DNS/AllowedIPs are supported. The helper rejects script
 hooks (`PreUp`, `PostUp`, `PreDown`, `PostDown`) on save/rename.
 
 Editing an active tunnel attempts `wg syncconf`. Address/DNS/MTU/routing changes
 still need a reconnect even if WireGuard-level synchronization succeeds.
-Quick-add peer saves the file without a live sync. Saving live state (`p`) can
+Quick-add peer uses the same save and live-sync path as normal editing. Saving live state (`p`) can
 replace saved WireGuard settings, so review the result.
 
-Backups live in `$XDG_DATA_HOME/wireguard/backups`, or
-`~/.local/share/wireguard/backups`, as `0600` ZIP files. Restore preflights the
-complete archive before saving: valid top-level `.conf` names, config shape,
-no script hooks, no duplicate names, at most **1 MiB per config**, **16 MiB total**,
-and **1024 configs**. Other file types are skipped. Validated configs are then
-saved sequentially; a helper failure can leave a partial restore. Restore does
-not apply the new configs to running interfaces.
+User backups live under `$XDG_DATA_HOME/wireguard/backups` (an absolute XDG
+path), or `~/.local/share/wireguard/backups`, shared by both applications.
+Existing managed backup directories must belong to the current user and are
+checked/tightened to `0700`; symlink directories are refused. ZIPs and exported
+copies use `0600`. New backup names are unique even within one second and are
+published without overwriting another archive.
 
-The kill switch requires an active tunnel; the helper sets a runtime fwmark
-when absent. It prefers nftables and otherwise uses iptables/ip6tables,
-rejecting egress outside loopback, the tunnel, its mark, and detected established
-SSH return traffic. Rules use exact tunnel-name comments and are inserted ahead
-of existing allow rules. They are temporary, affect host output rather than
-configure server forwarding/NAT, and can interact with other firewall managers.
-App deactivation/delete/rename attempts cleanup. Reboot, external tunnel changes,
-or firewall reloads require checking the rules again. After upgrading from an
-older version, disable/re-enable an existing kill switch to replace old rules.
-Keep another access path available when changing a remote firewall.
+Export reads every listed tunnel successfully or reports an error. It no longer
+reports a successful incomplete archive after a helper/read failure. Exports
+and saved logs are written to a completed private sibling file and then
+published atomically: failed writes preserve the old destination, final
+symlinks are refused, and replacing a hardlink does not modify its other names.
+
+Restore accepts only valid, unique, top-level `.conf` entries. It rejects
+malformed/duplicate archive names, invalid configs and hooks before its first
+save. Limits are **64 MiB per ZIP**, **4,096 archive entries**, **1,024 configs**,
+**1 MiB per config**, and **16 MiB total config text**. Unrelated files are
+skipped. Backup reads require an owned regular file with one hard link and
+refuse symlinks/FIFOs; copy a hardlinked archive to an ordinary file first.
+
+After complete preflight, restore still saves sequentially. It overwrites
+matching saved names, leaves other tunnels in place, and does not sync running
+interfaces. A later operational failure can leave a partial restore; it is not
+a multi-file transaction. Helper per-file backups remain a separate recovery
+source under `/etc/wireguard/.backup/`. All these archives contain unencrypted
+private keys.
+
+Only **one helper-managed kill switch** can be active at a time across managed
+tunnels. Turn the existing one off before enabling another. The helper requires
+an already-active interface; it can assign an unused runtime WireGuard fwmark
+without changing the saved config. It does not activate a stopped tunnel as a
+side effect of enabling a switch.
+
+The helper prefers nftables and requires a real hooked filter OUTPUT base chain.
+It applies its complete rule set as one nft batch. The fallback requires
+`iptables` and `iptables-restore`; when the kernel exposes IPv6 support it also
+requires `ip6tables` and `ip6tables-restore`, even before a non-loopback IPv6
+address is assigned. Both families are preflighted; commits are atomic **per
+family**, not one transaction across IPv4 and IPv6. Failures are reported.
+
+The rules allow loopback, the selected tunnel, its marked transport traffic,
+and detected established SSH return traffic when `SSH_CONNECTION` reaches the
+helper, then reject other host output ahead of existing allows. Exact comments
+isolate tunnel names; status requires the complete expected rule set. This is
+host-output control, not server forwarding/NAT or a general no-leak guarantee.
+It may disrupt remote access or interact with another firewall manager.
+
+Down/delete/rename retain protection if the interface is still active or its
+state is unknown, and report stop/cleanup failures. A failed operation can
+leave a tunnel stopped or partially changed; inspect the error and current
+state before retrying. App exit does not clear rules. External service changes
+may leave stale rules, and firewall reloads may remove them. No persistence
+daemon is installed. After upgrading, reapply an existing switch (off/on) to
+install current rules, planning for that brief unprotected interval and keeping
+another administrative access path available.
+
+Config validation is shared by the frontend and privileged helper. It checks
+every directive occurrence, known sections/field placement, canonical 32-byte
+WireGuard base64 keys (including padding bits), numeric CIDR/port/keepalive
+bounds, and required peer fields. Inline comments, repeated Interface sections,
+repeated Address/DNS/AllowedIPs, scoped IPv6 endpoints, named/numeric Table,
+FwMark hex/off and SaveConfig booleans are supported. Unknown fields or malformed
+sections stay visible in raw text but cannot be saved until corrected. If a
+PresharedKey directive is present it must contain a valid key; omit it to use
+no PSK. The helper independently rejects all four root script-hook directives.
 
 ## Doctor, setup, and updates
 
@@ -235,10 +296,58 @@ An SSH session does not satisfy the active-local rule; use the scoped sudoers
 installation or an administrator-approved privilege path.
 
 The app tries direct execution when already root, otherwise authorized
-`sudo -n`, then `pkexec`. It can reuse a co-installed desktop helper. Helper
+`sudo -n`, then `pkexec`. It selects only its own trusted helper paths. Helper
 verbs, fixed paths, atomic writes, backup behavior, updater trust, and known
 security limits are detailed in [SECURITY.md](SECURITY.md). QR codes, generated
 keys, running config, and exported backups may reveal private keys.
+
+## Audited helper, installer and update behavior
+
+Release helper discovery uses this project's own standard `/usr/local/lib/`
+and `/usr/lib/` paths, or an adjacent **trusted** executable. The executable must
+be root-owned, executable and not group/other writable; its directory ancestry
+must also be trusted. A normal user-owned extracted helper is not automatically
+trusted: install the verified bundle first. Release builds no longer fall back
+to the source build directory or another application's helper. Debug overrides
+remain available for development; they do not create an authorization grant.
+
+Background read-only requests use a noninteractive polkit check before pkexec,
+so missing authorization produces an actionable error instead of repeated
+password dialogs. Explicit mutating actions can still request authentication.
+Helper IPC drains input/output concurrently, retains at most 4 MiB per output
+stream, and has an overall 90-second deadline plus bounded pipe cleanup. Local
+key-generation commands have a 10-second deadline. A privileged process that
+the UI user cannot signal may finish independently after a UI-side timeout;
+check actual tunnel state before retrying.
+
+Before privileged writes or helper grants, `PREFIX` must be an absolute ASCII
+path containing only letters, digits, `/`, `_`, `.` and `-`, with no empty,
+`.` or `..` components or trailing slash. Existing directory ancestors must be
+root-owned without group/other write permission; symlinks are refused. A
+group-writable `/usr/local` can therefore fail these checks. An administrator
+must choose or prepare a protected path; the installer does not take ownership
+of caller directories. `--polkit` supports only `/usr` or `/usr/local`, matching
+the bundled rule. Custom sudoers prefixes still require matching frontend helper
+discovery configuration.
+
+Installer options are validated; unknown options fail instead of being ignored.
+Source builds use the lockfile. Switching sudoers/polkit modes installs and
+validates the selected grant before removing the previous grant. Failed sudoers
+validation or group enrollment reports failure and keeps prior authorization.
+`--polkit` requires pkexec up front; it does not install a rule and then claim
+success without the escalation tool. Packages still do not enroll users.
+
+Verified updates retain ownership of their private download directory through
+installation and clean it up on download, staging or installation failure and
+normal completion. Before privilege escalation, the whole required bundle is
+checked: regular single-link application/helper/installer/assets, no symlink
+components, and a fresh exclusive staging tree. Missing/unsafe assets fail before
+installation starts. HTTPS-only redirects are enforced. TUI automatic updates select its
+published x86_64/i686/aarch64/armv7 builds; unsupported CPUs fail explicitly.
+
+Update download rechecks that the verified version is newer than the running
+version. The completed update reports that verified version, and still needs
+an application restart. Prefer a package-manager upgrade for a packaged install.
 
 ## Development and further reading
 

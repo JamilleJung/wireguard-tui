@@ -1,6 +1,6 @@
 # Packaging wireguard-tui
 
-The current recipes target **1.9.1**. They build/install `wg-tui` plus the Rust
+The current recipes target **1.9.2**. They build/install `wg-tui` plus the Rust
 `wg-helper`. They do not add the `wireguard-tui` alias created by `install.sh`.
 Recipe availability is not a claim that a package is already published in an
 external repository.
@@ -66,7 +66,7 @@ cargo deb --no-build --no-strip
 Release packages use an auditable build and UPX compression before packaging;
 see [RELEASES.md](../docs/RELEASES.md) for verification and packed-binary audit
 instructions. Install a verified release with the package manager, for example
-`sudo apt install ./wireguard-tui_1.9.1-1_amd64.deb`.
+`sudo apt install ./wireguard-tui_1.9.2-1_amd64.deb`.
 
 ## Arch / AUR
 
@@ -119,3 +119,52 @@ not update a package database and can create a parallel `/usr/local` install.
 There is no supplied Flatpak because system helper/network administration does
 not fit this project's current sandbox model. See [SECURITY.md](../SECURITY.md)
 for the privilege boundary and [RELEASES.md](../docs/RELEASES.md) for signatures.
+
+## 1.9.2 compatibility and validation
+
+Before privileged writes or helper grants, `PREFIX` must be an absolute ASCII
+path containing only letters, digits, `/`, `_`, `.` and `-`, with no empty,
+`.` or `..` components or trailing slash. Existing directory ancestors must be
+root-owned without group/other write permission; symlinks are refused. A
+group-writable `/usr/local` can therefore fail these checks. An administrator
+must choose or prepare a protected path; the installer does not take ownership
+of caller directories. `--polkit` supports only `/usr` or `/usr/local`, matching
+the bundled rule. Custom sudoers prefixes still require matching frontend helper
+discovery configuration.
+Existing app/helper targets must be root-owned regular files with one link and
+no group/other write bits; the installed helper must be executable before an
+authorization grant is written.
+
+Installer options are validated; unknown options fail instead of being ignored.
+Source builds use the lockfile. Switching sudoers/polkit modes installs and
+validates the selected grant before removing the previous grant. Failed sudoers
+validation or group enrollment reports failure and keeps prior authorization.
+`--polkit` requires pkexec up front; it does not install a rule and then claim
+success without the escalation tool. Packages still do not enroll users.
+
+Release helper discovery uses this project's own standard `/usr/local/lib/`
+and `/usr/lib/` paths, or an adjacent **trusted** executable. The executable must
+be root-owned, executable and not group/other writable; its directory ancestry
+must also be trusted. A normal user-owned extracted helper is not automatically
+trusted: install the verified bundle first. Release builds no longer fall back
+to the source build directory or another application's helper. Debug overrides
+remain available for development; they do not create an authorization grant.
+
+Background read-only requests use a noninteractive polkit check before pkexec,
+so missing authorization produces an actionable error instead of repeated
+password dialogs. Explicit mutating actions can still request authentication.
+Helper IPC drains input/output concurrently, retains at most 4 MiB per output
+stream, and has an overall 90-second deadline plus bounded pipe cleanup. Local
+key-generation commands have a 10-second deadline. A privileged process that
+the UI user cannot signal may finish independently after a UI-side timeout;
+check actual tunnel state before retrying.
+
+Ship the matching helper with the app: release discovery no longer borrows a
+helper from the sibling project or an old source build tree. Background reads
+need an already authorized sudo/polkit path. The conditional kill-switch
+fallback needs iptables-restore and, on IPv6-capable kernels, ip6tables plus
+ip6tables-restore; no package recipe should promise a complete firewall setup
+from installing the rule alone. User backups require owned private directories
+and single-link regular archives; root configs reject symlinks/hardlinks/FIFOs
+and group/other write permission. Run the regression and isolated Linux checks
+before publishing a new package.
