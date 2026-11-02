@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="974" height="583" viewBox="0 0 974 583" role="img" aria-labelledby="title description" font-family="SFMono-Regular,Menlo,DejaVu Sans Mono,monospace" font-size="15">
-<title id="title">WireGuard TUI 1.9.1 illustrative interface example</title>
+<title id="title">WireGuard TUI illustrative interface example</title>
 <desc id="description">Rendered from the application UI with a 110 by 30 Ratatui TestBackend and fictional tunnel data. Shows connection health, transfer speed, field selection, kill switch status, and current keyboard hints. No live system or network was accessed.</desc>
 <rect width="974" height="583" rx="8" fill="#181825"/>
 <text x="14" y="28" fill="#cdd6f4" textLength="946" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌ WireGuard - terminal ──────────────────────────────────────────────────────────────────────────────────────┐</text>
