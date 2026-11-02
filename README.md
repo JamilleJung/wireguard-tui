@@ -355,16 +355,13 @@ QR and zip export contain private keys. Treat them like the config file itself.
 
 ### 🧾 Dependency advisories
 
-`cargo audit` (run in CI) flags two **unmaintained / soundness** advisories on
-transitive **proc-macro / optional** dependencies of the `ratatui` terminal-UI
-framework (`paste`, `lru`). **Neither is exploitable, and neither ships in a
-meaningful runtime path** - `paste` is a build-time proc-macro and `lru` is an
-optional-and-disabled crate inside `ratatui`, which this project does not
-control. Removing them would mean replacing the entire TUI framework. So they are
-documented `--ignore` entries in the audit gate, which still fails on any real or
-new vulnerability, and Dependabot watches for upstream fixes. Every release
-binary embeds an SBOM, so `cargo audit bin <binary>` audits exactly what was
-compiled in. See [SECURITY.md](SECURITY.md).
+`cargo audit --deny warnings` runs in CI and before release publication.
+The current dependency lockfile passes without advisory exceptions; older
+`paste` and `lru` exceptions were removed after updating dependencies. New
+vulnerabilities, unsoundness, unmaintained notices and other warnings fail the
+audit gate. Release binaries embed SBOM data through `cargo auditable build`,
+allowing `cargo audit bin <binary>` to inspect the compiled dependency set.
+
 
 ## 🔧 Hacking on it
 

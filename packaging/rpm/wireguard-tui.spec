@@ -1,5 +1,5 @@
 Name:           wireguard-tui
-Version:        1.9.0
+Version:        1.9.1
 Release:        1%{?dist}
 Summary:        A native Linux terminal UI (TUI) for managing WireGuard tunnels
 
@@ -47,6 +47,10 @@ install -Dm0644 packaging/49-wireguard-tui.rules %{buildroot}%{_datadir}/polkit-
 %{_datadir}/polkit-1/rules.d/49-wireguard-tui.rules
 
 %changelog
+* Mon Nov 02 2026 jamillejung <izeystudio@gmail.com> - 1.9.1-1
+- Update dependencies and repair backup import compatibility.
+- Harden signed updates, helper command output, and kill switch isolation.
+
 * Mon Jul 27 2026 jamillejung <izeystudio@gmail.com> - 1.9.0-1
 - Version 1.9.0: detect an inactive resolvectl shim on RHEL-family hosts, so
   tunnels with a 'DNS =' line no longer fail after a healthy-looking check.
