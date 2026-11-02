@@ -1,43 +1,87 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="991" height="583" viewBox="0 0 991 583" font-family="'JetBrains Mono','DejaVu Sans Mono','Cascadia Code',Consolas,monospace" font-size="15">
-<rect width="991" height="583" rx="8" fill="#181825"/>
-<text x="14.0" y="28.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌ WireGuard - terminal ────────────────────────────────────────────────────────────────────────────────────────┐</text>
-<text x="14.0" y="46.5" fill="#cdd6e4" textLength="17.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ </text>
-<text x="31.2" y="46.5" fill="#cdd6e4" font-weight="700" textLength="77.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> Tunnels </text>
-<text x="108.6" y="46.5" fill="#cdd6e4" textLength="868.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> │  Log                                                                                             │</text>
-<text x="14.0" y="65.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘</text>
-<text x="14.0" y="83.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌ Tunnels ─────────────────┐┌ home-server ─────────────────────────────────────────────────────────────────────┐</text>
-<text x="14.0" y="102.0" fill="#cdd6e4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
-<text x="22.6" y="102.0" fill="#cdd6e4" font-weight="700" textLength="223.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> * home-server            </text>
-<text x="246.2" y="102.0" fill="#cdd6e4" textLength="17.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">││</text>
-<text x="263.4" y="102.0" fill="#cdd6e4" font-weight="700" textLength="77.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Interface</text>
-<text x="340.8" y="102.0" fill="#cdd6e4" textLength="636.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                                                         │</text>
-<text x="14.0" y="120.5" fill="#cdd6e4" textLength="387.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ - work-vpn               ││  Status        </text>
-<text x="401.0" y="120.5" fill="#cdd6e4" font-weight="700" textLength="51.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Active</text>
-<text x="452.6" y="120.5" fill="#cdd6e4" textLength="524.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                                            │</text>
-<text x="14.0" y="139.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ - tokyo-relay            ││  Public key    Hk3pQ2vN8sLrYwZ1aFcJ4mD6tB9eU0xKgPiR7oVnQ4=                       │</text>
-<text x="14.0" y="157.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ - us-east-1              ││  Listen port   51820                                                             │</text>
-<text x="14.0" y="176.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  Addresses     10.7.0.2/24, fd00:7::2/64                                         │</text>
-<text x="14.0" y="194.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  DNS           1.1.1.1, 1.0.0.1                                                  │</text>
-<text x="14.0" y="213.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  Start on boot Yes                                                               │</text>
-<text x="14.0" y="231.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
-<text x="14.0" y="250.0" fill="#cdd6e4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
-<text x="263.4" y="250.0" fill="#cdd6e4" font-weight="700" textLength="51.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Peer 1</text>
-<text x="315.0" y="250.0" fill="#cdd6e4" textLength="662.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                                                            │</text>
-<text x="14.0" y="268.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  Public key    T9bXm2Kp5LqWv8RcZ1hN6sJ3dY7uA0eFgB4iO+wQ5k=                       │</text>
-<text x="14.0" y="287.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  Preshared key Yes                                                               │</text>
-<text x="14.0" y="305.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  Allowed IPs   0.0.0.0/0, ::/0                                                   │</text>
-<text x="14.0" y="324.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  Endpoint      vpn.example.com:51820                                             │</text>
-<text x="14.0" y="342.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  Keepalive     25                                                                │</text>
-<text x="14.0" y="361.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  Latest hs     38 seconds ago                                                    │</text>
-<text x="14.0" y="379.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││  Transfer      1.24 GiB received, 318.66 MiB sent                                │</text>
-<text x="14.0" y="398.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
-<text x="14.0" y="416.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
-<text x="14.0" y="435.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
-<text x="14.0" y="453.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
-<text x="14.0" y="472.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
-<text x="14.0" y="490.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
-<text x="14.0" y="509.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
-<text x="14.0" y="527.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                  │</text>
-<text x="14.0" y="546.0" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">└──────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────┘</text>
-<text x="14.0" y="564.5" fill="#cdd6e4" textLength="963.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> Up/Dn move  Enter/a connect/disconnect  n new  i import  s on-boot  d remove  Q qr  Tab log  m advanced  ? help</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="974" height="583" viewBox="0 0 974 583" role="img" aria-labelledby="title description" font-family="SFMono-Regular,Menlo,DejaVu Sans Mono,monospace" font-size="15">
+<title id="title">WireGuard TUI 1.9.1 illustrative interface example</title>
+<desc id="description">Rendered from the application UI with a 110 by 30 Ratatui TestBackend and fictional tunnel data. Shows connection health, transfer speed, field selection, kill switch status, and current keyboard hints. No live system or network was accessed.</desc>
+<rect width="974" height="583" rx="8" fill="#181825"/>
+<text x="14" y="28" fill="#cdd6f4" textLength="946" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌ WireGuard - terminal ──────────────────────────────────────────────────────────────────────────────────────┐</text>
+<text x="14" y="46.5" fill="#cdd6f4" textLength="17.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ </text>
+<rect x="31.2" y="32.5" width="77.4" height="18.5" fill="#89dceb"/>
+<text x="31.2" y="46.5" fill="#11111b" font-weight="700" textLength="77.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> Tunnels </text>
+<text x="108.6" y="46.5" fill="#cdd6f4" textLength="851.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> │  Log                                                                                           │</text>
+<text x="14" y="65" fill="#cdd6f4" textLength="946" lengthAdjust="spacingAndGlyphs" xml:space="preserve">└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘</text>
+<text x="14" y="83.5" fill="#cdd6f4" textLength="946" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌ Tunnels ─────────────────┐┌ home-vpn ──────────────────────────────────────────────────────────────────────┐</text>
+<text x="14" y="102" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<rect x="22.6" y="88" width="223.6" height="18.5" fill="#3557a3"/>
+<text x="22.6" y="102" fill="#f5f5ff" font-weight="700" textLength="223.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> * home-vpn               </text>
+<text x="246.2" y="102" fill="#cdd6f4" textLength="17.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">││</text>
+<text x="263.4" y="102" fill="#89dceb" font-weight="700" textLength="77.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Interface</text>
+<text x="340.8" y="102" fill="#cdd6f4" textLength="619.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                                                       │</text>
+<text x="14" y="120.5" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="120.5" fill="#9399b2" textLength="25.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> - </text>
+<text x="48.4" y="120.5" fill="#cdd6f4" textLength="215" lengthAdjust="spacingAndGlyphs" xml:space="preserve">work-vpn               ││</text>
+<text x="263.4" y="120.5" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Status        </text>
+<text x="401" y="120.5" fill="#a6e3a1" font-weight="700" textLength="51.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Active</text>
+<text x="452.6" y="120.5" fill="#cdd6f4" textLength="507.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                                          │</text>
+<text x="14" y="139" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="139" fill="#9399b2" textLength="25.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> - </text>
+<text x="48.4" y="139" fill="#cdd6f4" textLength="215" lengthAdjust="spacingAndGlyphs" xml:space="preserve">lab-relay              ││</text>
+<text x="263.4" y="139" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Connection    </text>
+<text x="401" y="139" fill="#a6e3a1" textLength="232.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">OK (last handshake 38s ago)</text>
+<text x="633.2" y="139" fill="#cdd6f4" textLength="326.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                     │</text>
+<text x="14" y="157.5" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="157.5" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Speed         </text>
+<text x="401" y="157.5" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">↓ 54.00 KiB/s   ↑ 12.00 KiB/s                                   │</text>
+<text x="14" y="176" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<rect x="263.4" y="162" width="137.6" height="18.5" fill="#3557a3"/>
+<text x="263.4" y="176" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Public key    </text>
+<rect x="401" y="162" width="378.4" height="18.5" fill="#3557a3"/>
+<text x="401" y="176" fill="#cdd6f4" textLength="378.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</text>
+<text x="779.4" y="176" fill="#cdd6f4" textLength="180.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                    │</text>
+<text x="14" y="194.5" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="194.5" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Listen port   </text>
+<text x="401" y="194.5" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">51820                                                           │</text>
+<text x="14" y="213" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="213" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Addresses     </text>
+<text x="401" y="213" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">10.7.0.2/32, fd00:7::2/128                                      │</text>
+<text x="14" y="231.5" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="231.5" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  DNS           </text>
+<text x="401" y="231.5" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">1.1.1.1, 2606:4700:4700::1111                                   │</text>
+<text x="14" y="250" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="250" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Start on boot </text>
+<text x="401" y="250" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Yes                                                             │</text>
+<text x="14" y="268.5" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="268.5" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Kill switch   </text>
+<text x="401" y="268.5" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Yes                                                             │</text>
+<text x="14" y="287" fill="#cdd6f4" textLength="946" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                │</text>
+<text x="14" y="305.5" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="305.5" fill="#89dceb" font-weight="700" textLength="51.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Peer 1</text>
+<text x="315" y="305.5" fill="#cdd6f4" textLength="645" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                                                          │</text>
+<text x="14" y="324" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="324" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Public key    </text>
+<text x="401" y="324" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA=                    │</text>
+<text x="14" y="342.5" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="342.5" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Preshared key </text>
+<text x="401" y="342.5" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Yes                                                             │</text>
+<text x="14" y="361" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="361" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Allowed IPs   </text>
+<text x="401" y="361" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">0.0.0.0/0, ::/0                                                 │</text>
+<text x="14" y="379.5" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="379.5" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Endpoint      </text>
+<text x="401" y="379.5" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">203.0.113.7:51820                                               │</text>
+<text x="14" y="398" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="398" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Keepalive     </text>
+<text x="401" y="398" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">25                                                              │</text>
+<text x="14" y="416.5" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="416.5" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Latest hs     </text>
+<text x="401" y="416.5" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">38s ago                                                         │</text>
+<text x="14" y="435" fill="#cdd6f4" textLength="249.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││</text>
+<text x="263.4" y="435" fill="#9399b2" textLength="137.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Transfer      </text>
+<text x="401" y="435" fill="#cdd6f4" textLength="559" lengthAdjust="spacingAndGlyphs" xml:space="preserve">1.24 GiB received, 318.66 MiB sent                              │</text>
+<text x="14" y="453.5" fill="#cdd6f4" textLength="946" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                │</text>
+<text x="14" y="472" fill="#cdd6f4" textLength="946" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                │</text>
+<text x="14" y="490.5" fill="#cdd6f4" textLength="946" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                │</text>
+<text x="14" y="509" fill="#cdd6f4" textLength="946" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                │</text>
+<text x="14" y="527.5" fill="#cdd6f4" textLength="946" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│                          ││                                                                                │</text>
+<text x="14" y="546" fill="#cdd6f4" textLength="946" lengthAdjust="spacingAndGlyphs" xml:space="preserve">└──────────────────────────┘└────────────────────────────────────────────────────────────────────────────────┘</text>
+<text x="14" y="564.5" fill="#9399b2" textLength="877.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> Up/Dn move  Enter on/off  n new  i import  d remove  Q qr  y copy  D diagnose  Tab log  …  ? all keys</text>
+<text x="891.2" y="564.5" fill="#cdd6f4" textLength="68.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">        </text>
 </svg>
