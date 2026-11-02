@@ -180,6 +180,23 @@ fn tarball_name(version: &str) -> Result<String, String> {
 pub struct VerifiedUpdate {
     workdir: PathBuf,
     directory: PathBuf,
+    version: String,
+}
+
+impl VerifiedUpdate {
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+}
+
+fn validate_update_version(version: &str) -> Result<(), String> {
+    match is_newer(version) {
+        Some(true) => Ok(()),
+        Some(false) => Err(format!(
+            "release {version} is not newer than installed {CURRENT}; update refused"
+        )),
+        None => Err("invalid update version".into()),
+    }
 }
 
 impl Drop for VerifiedUpdate {
@@ -243,6 +260,7 @@ pub fn download_and_verify() -> Result<VerifiedUpdate, String> {
         return Err("automatic release updates are supported on Linux only".into());
     }
     let version = latest_tag()?;
+    validate_update_version(&version)?;
     let tarball = tarball_name(&version)?;
     let base = format!("https://github.com/{OWNER}/{REPO}/releases/download/v{version}");
 
@@ -250,6 +268,7 @@ pub fn download_and_verify() -> Result<VerifiedUpdate, String> {
     let mut update = VerifiedUpdate {
         workdir: private_workdir()?,
         directory: PathBuf::new(),
+        version: version.clone(),
     };
     let workdir = &update.workdir;
 
@@ -497,6 +516,17 @@ pub fn disabled() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn downloaded_release_cannot_silently_downgrade() {
+        let current = super::parse(super::CURRENT).unwrap();
+        assert!(super::validate_update_version(super::CURRENT).is_err());
+        assert!(super::validate_update_version("0.0.0").is_err());
+        assert!(super::validate_update_version("bad").is_err());
+        assert!(super::validate_update_version(&format!("{}.0.0", current.0 + 1)).is_ok());
+        let update = bundle_fixture();
+        assert_eq!(update.version(), "1.9.2");
+    }
+
     use super::{REPO, VerifiedUpdate, stage_bundle};
 
     fn bundle_fixture() -> VerifiedUpdate {
@@ -514,7 +544,11 @@ mod tests {
         ] {
             std::fs::write(directory.join(file), b"fixture").unwrap();
         }
-        VerifiedUpdate { workdir, directory }
+        VerifiedUpdate {
+            workdir,
+            directory,
+            version: "1.9.2".into(),
+        }
     }
 
     #[test]
