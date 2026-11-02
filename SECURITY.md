@@ -1,165 +1,172 @@
-# 🛡️ Security Policy
+# Security policy
 
-## 📧 Reporting a vulnerability
+## Reporting a vulnerability
 
-Please report security issues **privately** - do not open a public issue for
-anything exploitable.
+Report exploitable issues privately through
+[GitHub private vulnerability reporting](https://github.com/JamilleJung/wireguard-tui/security/advisories/new)
+or email **izeystudio@gmail.com**. Include the version/commit, distro, steps,
+and impact; omit real private keys and production configs. Only the latest
+release (**1.9.1**) and `main` receive fixes.
 
-- Preferred: GitHub **[Private vulnerability reporting](https://github.com/JamilleJung/wireguard-tui/security/advisories/new)**
-  (Security → Report a vulnerability).
-- Or email: **izeystudio@gmail.com**
+## Trust and scope
 
-Please include the version (or commit), your distro + package manager, repro
-steps, and impact. Do **not** include real private keys or production configs.
-Coordinated disclosure is appreciated - you'll get an acknowledgement as soon as
-possible and be kept updated on a fix.
+The normal UI runs unprivileged, and a Rust helper performs operations on
+`/etc/wireguard` with root privilege. The intended boundary limits a helper
+authorization grant to managing tunnels rather than arbitrary root commands.
+It is a security design, not a guarantee that no exploitable bugs exist.
 
-## 📋 Supported versions
+A trusted operator with helper access can read private tunnel keys, change
+routing/DNS, connect/disconnect tunnels, and change supported firewall rules.
+Do not grant access to every local user. The app does not isolate secrets from
+root, another process running as the same user, a compromised editor/terminal,
+clipboard history, screenshots, or a compromised WireGuard/kernel/toolchain.
+It depends on trusted system files and administrative control of
+`/etc/wireguard`, installed helper paths, and system tools.
 
-This is an early project; only the latest release (and `main`) receive fixes.
-If you are running an older version, please upgrade before reporting.
+## Authorization and privileged flows
 
-## 🔍 Threat model
+The app uses an installed helper at a fixed standard path (including a
+co-installed desktop helper), or a supported portable/development fallback.
+It uses direct execution when root, otherwise probes scoped `sudo -n` and then
+falls back to `pkexec`. A grant belongs to the helper executable path, not to
+the UI executable.
 
-`wg-tui` manages WireGuard tunnels under `/etc/wireguard`, which requires root.
-The design goal is to keep the part that runs as root as small and auditable as
-possible, and to keep everything else unprivileged.
+- `install.sh` defaults to `/usr/local/lib/wireguard-tui/wg-helper` plus a
+  per-user sudoers drop-in. A normal-user build is preserved even when the
+  installer re-executes through `su`.
+- `--polkit` installs a rule requiring an active **local** session and membership
+  in the `wireguard` group. The source/prebuilt installer attempts group/user
+  setup; verify it and re-login. An SSH session does not meet the local-session
+  condition. Outside the rule, pkexec may use its normal admin authentication
+  policy or fail if no agent is available.
+- The `.deb` and distro recipes install the polkit rule but have no membership
+  setup script. An administrator must arrange the trusted group separately;
+  see [packaging](packaging/PACKAGING.md).
+- A direct root install without a normal user requires `--allow-root` (or
+  `WG_ALLOW_ROOT=1`). A source build may then run build scripts as root. Prefer
+  a normal-user build or a verified prebuilt bundle.
 
-**In scope** (things we actively defend against):
+Release builds ignore `WG_HELPER` unless `WG_ALLOW_UNSAFE_HELPER=1` and the
+specified file is absolute, regular, root-owned, and not group/other writable.
+Debug builds accept the override directly. These checks do not establish
+trust in every parent directory or create an authorization grant. Treat helper
+overrides and writable portable build directories as operator-controlled
+inputs, especially when launching the UI as root.
 
-- A bug or hijacked environment in the **unprivileged UI** escalating to root.
-- A user who can run the **helper** (via the passwordless grant) escalating
-  beyond "manage WireGuard tunnels" to arbitrary root code execution.
-- The privileged helper being tricked into touching files outside
-  `/etc/wireguard` (path traversal) or running attacker-chosen commands.
-- A malicious or malformed `.conf`/QR import corrupting existing tunnels or
-  smuggling code that would run as root.
-- Another local user reading your private keys through the helper.
-- Truncated/lost configs from interrupted writes.
+The helper is not the only privileged code path: the installer and guided
+`setup` may use the package manager, sudo/su, or fixed shell commands after the
+user's installation request/confirmation. The updater runs a verified installer.
 
-**Out of scope** (cannot be defended against here):
+## Helper protections
 
-- An attacker who is **already root**, or who can already run code **as your
-  user** (they can read your keys directly; pinning a binary path doesn't help).
-- The security of WireGuard itself, the kernel module, or `wg`/`wg-quick`.
-- Physical access / a compromised terminal emulator / clipboard history.
+The helper exposes fixed verbs: `list`, `active`, `read`, `dump`, `up`, `down`,
+`save`, `rename`, `delete`, `enable`, `disable`, `is-enabled`, `sync`, `showconf`,
+`persist`, `log`, `killswitch-status`, `killswitch-enable`, `killswitch-disable`.
 
-## 🔒 The privilege boundary
+It validates names before file operations: at most 15 ASCII bytes, first
+character alphanumeric, remaining characters alphanumeric/`_`/`-`/`.`, with no
+`..`, separators, or `.conf` suffix. Destination configs stay under the fixed
+`/etc/wireguard` path; external programs are found in
+`/usr/sbin:/usr/bin:/sbin:/bin` and invoked with argv arrays. Calls have bounded
+process groups with concurrent output draining; timeout terminates the group.
 
-The TUI runs as your normal user. **The only thing that runs as root is one
-small Rust helper binary**, `wg-helper` (`src/bin/wg-helper.rs` in source),
-invoked as `sudo -n wg-helper <verb> [name]` (sudoers mode) or
-`pkexec wg-helper ...` (polkit / fallback). Authorisation is scoped to
-**exactly that one helper path**:
+Save/rename revalidate basic config shape and reject root script hooks. Writes
+use exclusive `0600` temporary files, file synchronization, atomic rename, and
+directory synchronization. Existing configs get timestamped `0600` backups in
+`/etc/wireguard/.backup/` before overwrite, rename, deletion or save-live.
+Mutation metadata is logged through `logger`, with secret-field redaction for
+reported command errors. These protections do not replace access controls on
+root-managed files or full validation by WireGuard itself.
 
-- the **sudoers** drop-in grants passwordless execution of only
-  `/usr/local/lib/wireguard-tui/wg-helper` for your user;
-- the **polkit** rule allows `pkexec` of only that program, and only for a user
-  who is both in an **active local session** *and* a member of the **`wireguard`
-  group** (the installer creates the group and adds you). The helper can read
-  configs that contain private keys, so a passwordless grant must not be handed
-  to every logged-in user; until you are in the group the rule denies and
-  `pkexec` asks for the admin password (fail closed).
+## Script hooks and imported data
 
-Because the grant is bound to the absolute helper path, pointing the app at a
-different program (e.g. via `$WG_HELPER`) cannot silently gain root - it would
-fall outside the sudoers/polkit grant and prompt or fail. In release builds the
-helper-path override is additionally refused unless `WG_ALLOW_UNSAFE_HELPER=1`
-is set and the target is an absolute, root-owned, non-world-writable file.
+`PreUp`, `PostUp`, `PreDown`, and `PostDown` execute shell commands as root
+through wg-quick. The helper refuses to save/rename configs containing them;
+backup restore also rejects them during preflight. Valid inline `#` comments
+do not hide a directive. If an administrator creates a config with hooks
+externally, activation/deactivation can still execute those trusted commands:
+the app does not promise to sandbox an existing root-managed config.
 
-The helper itself:
+Backup restore validates all relevant archive entries before its first write:
+valid top-level `.conf` names, no duplicate names or hooks, config validation,
+at most 1 MiB per config, 16 MiB combined and 1024 configs. It ignores other file
+types and bounds actual decompressed reads. Saves then happen sequentially;
+operational failure can leave a partial restore, and running interfaces are
+not synchronized by restore.
 
-- exports a **fixed `PATH`** (`/usr/sbin:/usr/bin:/sbin:/bin`) so a hijacked
-  caller `PATH` can't redirect the `wg`/`wg-quick`/`logger` it runs as root;
-- **validates every tunnel name** against `^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`
-  and rejects `..`, so `"$WG_DIR/<name>.conf"` can never escape `/etc/wireguard`;
-- **rejects `PostUp` / `PreUp` / `PostDown` / `PreDown` script hooks** in any
-  config it saves (see below) - blocked *at the privilege boundary*;
-- **no `sh -c`** - all subprocess calls use argv arrays directly, each with a
-  timeout;
-- writes configs **atomically** (temp file with `O_EXCL` + `fsync` + `rename`,
-  mode `600`) and keeps a **timestamped 0600 backup** before any overwrite,
-  rename, or delete;
-- validates the saved config shape in the helper before save/rename, in addition
-  to the unprivileged frontend validation;
-- **logs every mutating action** (with the invoking user) to the journal
-  (`logger -t wireguard-tui`), with private/preshared keys redacted.
+## Private keys, editor and clipboard
 
-## 🚫 Script hooks are blocked
+Saved configs and exports/backups contain private keys. Managed config writes
+and ZIP exports use `0600`; export destinations reject symlinks. User backups
+live under `$XDG_DATA_HOME/wireguard/backups` (default
+`~/.local/share/wireguard/backups`) and are shared with the desktop client.
 
-The `wg-quick` directives `PostUp` / `PreUp` / `PostDown` / `PreDown` execute
-**arbitrary shell commands as root** when a tunnel is brought up or down. Left
-unchecked, a config saved through the helper could turn the narrow "manage
-tunnels" grant into full root.
+The external editor receives a `0600` temporary copy with exclusive creation,
+under `$XDG_RUNTIME_DIR` when present or a per-user temporary directory intended
+to be `0700`. That design relies on a trustworthy runtime/temp environment and
+editor. Editor swap files or plugins have their own behavior. The app removes
+its temporary copy after editing; it cannot guarantee cleanup after a crash.
 
-To keep the privilege boundary meaningful, **the helper refuses to save or
-rename any config that contains those directives** (the UI surfaces the error),
-and a tunnel is only ever activated through `wg-quick`, never by interpreting
-script lines itself. If you genuinely need a hook, edit the file under
-`/etc/wireguard` directly as root - outside this constrained helper.
+`Q` exposes the complete config as a QR; `g` displays generated secret keys and
+`c` can display private running config. `y` copies the focused public/detail
+field, while log selection can copy multiple lines. Copy tries native
+`wl-copy`/`xclip`/`xsel` tools before OSC 52, whose acceptance depends on the
+terminal/multiplexer. Remote display forwarding, terminal recordings, and
+clipboard history can affect where copied data goes or is retained.
 
-## 🔌 Kill switch scope
+## Kill switch limits
 
-The helper can add/remove tunnel-scoped firewall rules for an active `wg-quick`
-tunnel, preferring **nftables** (`inet filter`) with an iptables/ip6tables
-fallback. The rules allow loopback, the tunnel interface, the tunnel's fwmark,
-and (when `$SSH_CONNECTION` is set) established SSH return traffic, and reject
-everything else. The iptables fallback **fails closed** on IPv6 if `ip6tables`
-is missing rather than leaving v6 unprotected.
+The helper requires an active tunnel, setting a runtime fwmark if missing.
+It prefers nftables (`inet filter`) and otherwise uses iptables/ip6tables.
+Rules allow loopback, the tunnel, its mark, and detected established SSH return
+traffic; remaining host output is rejected. Rule comments match exact tunnel
+names, and reject rules precede pre-existing allows in the managed chain. With
+the iptables fallback, a host with non-loopback IPv6 and no `ip6tables` is
+refused. This is not a general proof of leak prevention under every firewall
+configuration, future IPv6 change, or simultaneous tunnel arrangement.
 
-The kill switch is **not persistent** - no daemon, and the rules live only as
-long as the helper-managed tunnel. They are torn down on deactivate/delete/
-rename. A tunnel stopped by some other path (manual `wg-quick down`, a service
-restart, a reboot) can leave the rules lingering until you next use the app;
-toggling the kill switch off clears them. Do not rely on it as a permanent
-system firewall.
+There is no daemon or persistence service. App deactivation/delete/rename
+attempts cleanup; app exit alone does not remove rules. External tunnel stops
+can leave blocking rules behind, and firewall reloads can remove protection.
+Reboot normally clears runtime rules unless another firewall manager restores
+them. A binary upgrade does not rewrite existing rules: toggle an active
+switch off/on after updating. Keep an alternate administrative connection
+when changing remote firewall state. The switch manages host output, not
+server forwarding/NAT.
 
-## 🔑 Private keys and QR codes
+## Signed releases and updates
 
-- A tunnel `.conf` contains the interface **private key**. Files are written
-  `0600`; backups are `0600` in `/etc/wireguard/.backup`.
-- The **editor** opens a temporary copy of the config, created with `O_EXCL` and
-  mode `0600` inside a per-user private directory (`$XDG_RUNTIME_DIR`, or a
-  `0700` fallback), so another local user cannot pre-plant a symlink to read the
-  key or steer your editor; it is removed afterwards.
-- **Show QR** renders the full config - *including the private key* - as a QR
-  code. Anyone who photographs your screen gets the key. Only display it when
-  it's safe, and prefer a maximised window so it scans.
-- **Copy public key** (`y`) sends only the *public* key via the OSC 52 terminal
-  escape. Be aware terminal multiplexers/loggers can capture OSC 52 data.
-- **Export** writes every tunnel's `.conf` into a `.zip`; that archive contains
-  private keys. It is created `0600` and refuses to follow a symlink at the
-  destination. Store it somewhere safe and delete it when done.
+The release workflow refuses publication if minisign signing/verification
+fails or `MINISIGN_KEY` is absent. It attaches four architecture tarballs,
+the amd64 `.deb`, `SHA256SUMS`, `SHA256SUMS.minisig`, and `minisign.pub`.
+GitHub Actions are SHA-pinned; release tools are version-pinned; the publishing
+job alone has a write token. These measures reduce supply-chain risk; source
+builds are not claimed to be reproducible or free of dependency risk.
 
-## ✅ Supply chain & verifying a download
-
-- Each release ships a `SHA256SUMS` file, **signed with minisign**
-  (`SHA256SUMS.minisig`; public key `minisign.pub`, committed here and attached
-  to every release). Signing is **fail-closed**: the release aborts rather than
-  publish unsigned artifacts.
-- **All** GitHub Actions are pinned to commit SHAs (including first-party
-  `actions/*`); `cargo-deb` is pinned to an exact version.
-- The release token is **least-privilege**: read-only everywhere except the one
-  job that publishes.
-- CI runs `cargo audit` against the RUSTSEC advisory DB, and Dependabot watches
-  the crate and Action pins.
-- Verify a download with:
+Verify the checksum manifest with an independently trusted project key, then
+require an `OK` result for the exact downloaded artifact:
 
 ```sh
-# 1) check the signature on the checksum file
 minisign -Vm SHA256SUMS -P RWTyrstfFCLYkpMwbcyBRl+aGGcJikl35GY1esJDO6HTEJFIMvUC8f1Q
-# 2) then verify the artifacts against it
-sha256sum -c SHA256SUMS --ignore-missing
+sha256sum -c SHA256SUMS --ignore-missing --strict
 ```
 
-When in doubt, **build from source** - the project is pure Rust with no GUI/C
-dependencies, so `cargo build --release` is reproducible on any supported distro.
+A key downloaded alongside an artifact needs independent comparison with the
+committed/trusted key. A checksum alone does not authenticate its origin.
 
-### 🧾 Dependency advisories (accepted, documented)
+The startup update check contacts GitHub unless opted out. The updater validates
+release-version syntax, uses HTTPS, verifies the signed manifest against the
+**compiled-in** key, checks one exact tarball entry, and extracts into an
+exclusive private `0700` directory. It then runs the verified installer with
+prebuilt binaries. Missing verification tools or verification failure aborts
+the update. It may attempt a package-manager install of minisign. The running
+process is unchanged until restart. Use the package manager for distro-managed
+installs to avoid mixing `/usr` and `/usr/local` layouts.
 
-`cargo audit --deny warnings` runs in CI and before release publication.
-The current dependency lockfile passes without advisory exceptions; older
-`paste` and `lru` exceptions were removed after updating dependencies. New
-vulnerabilities, unsoundness, unmaintained notices and other warnings fail the
-audit gate. Release binaries embed SBOM data through `cargo auditable build`,
-allowing `cargo audit bin <binary>` to inspect the compiled dependency set.
+CI and release packaging run `cargo audit --deny warnings`; the current
+lockfile passes without advisory exceptions. Audits cover known advisories,
+not all possible defects. Release builds embed dependency metadata via
+`cargo auditable build` **before UPX compression**. To inspect a shipped binary,
+work on a copy, unpack it with `upx -d`, then use `cargo audit bin <file>`; do not
+assume the audit command reads the packed ELF directly. See
+[release details](docs/RELEASES.md).

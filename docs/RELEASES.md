@@ -1,20 +1,69 @@
-# 📦 Releases
+# Releases and verification
 
-This page is the friendly tour of wireguard-tui releases: where to download
-them, how to be sure a download is genuine, how each build is produced, and what
-changed in every version. The terminal app `wg-tui` and its desktop sibling
-`wireguard-gui` are developed together and share a version number, so a `1.6.0`
-of one matches `1.6.0` of the other feature-for-feature.
+Current release: [1.9.1](https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.9.1).
+Use the [release list](https://github.com/JamilleJung/wireguard-tui/releases) or
+[latest release](https://github.com/JamilleJung/wireguard-tui/releases/latest)
+for downloads. The [changelog](../CHANGELOG.md) is the canonical history.
+The desktop sibling shares project/backend work and may use the same release
+number; terminal and desktop controls/features are not identical.
 
-## 📥 Where to get releases
+## Artifacts
 
-Every release lives on GitHub:
+| Artifact | Build |
+|---|---|
+| `wireguard-tui-1.9.1-x86_64-linux.tar.gz` | Static musl, 64-bit Intel/AMD |
+| `wireguard-tui-1.9.1-i686-linux.tar.gz` | Static musl, 32-bit Intel/AMD |
+| `wireguard-tui-1.9.1-aarch64-linux.tar.gz` | Static musl, 64-bit ARM |
+| `wireguard-tui-1.9.1-armv7-linux.tar.gz` | Static musl, 32-bit ARMv7 |
+| `wireguard-tui_1.9.1-1_amd64.deb` | Debian/Ubuntu amd64 package |
+| `SHA256SUMS`, `SHA256SUMS.minisig`, `minisign.pub` | Checksum manifest, signature, verification key |
 
-- Releases list: <https://github.com/JamilleJung/wireguard-tui/releases>
-- Latest release: <https://github.com/JamilleJung/wireguard-tui/releases/latest>
+A release tarball has `wg-tui`, `wg-helper`, `install.sh`, README/license, and
+polkit/desktop/icon files under `packaging/`. The source-code archives provided
+by GitHub are different: they contain Cargo sources and require compilation.
+The tarballs need no Rust compiler at installation but still use runtime tools
+and authorization. `uname -m` helps choose a CPU archive; `armv7l` maps to armv7.
 
-Most people never download a tarball by hand - the one-command installer clones
-the repo and builds from source:
+## Verify before installation
+
+Download the chosen artifact and both manifest/signature files. Verify the
+manifest using an independently trusted project key:
+
+```sh
+minisign -Vm SHA256SUMS -P RWTyrstfFCLYkpMwbcyBRl+aGGcJikl35GY1esJDO6HTEJFIMvUC8f1Q
+sha256sum -c SHA256SUMS --ignore-missing --strict
+```
+
+Require an `OK` line for the **exact artifact** you intend to install. The
+`--ignore-missing` option allows checking a subset rather than downloading all
+architectures. Missing/invalid signature data or a failed artifact check means
+stop. The attached `minisign.pub` is a convenient copy, but verify that it
+matches a previously trusted/committed key before using `-p minisign.pub`.
+Checksums alone cannot authenticate a release.
+
+For a verified tarball, extract it and run its installer as your normal user:
+
+```sh
+tar -xzf wireguard-tui-1.9.1-x86_64-linux.tar.gz
+cd wireguard-tui-1.9.1-x86_64-linux
+./install.sh
+```
+
+Both adjacent binaries are automatically staged; Rust/compiler installation is
+skipped. Runtime packages and helper authorization are still configured. The
+installer defaults to `/usr/local`, a scoped sudoers grant, and a terminal
+launcher/icon. Use `--no-desktop` to skip launcher files, or `--polkit` for
+active-local/group-based authorization. From a direct root login use the
+explicit `--allow-root` override after verification.
+
+For the verified package, use
+`sudo apt install ./wireguard-tui_1.9.1-1_amd64.deb`. The `.deb` ships a polkit
+rule and desktop assets but no group-membership setup script. Follow the
+[packaging guide](../packaging/PACKAGING.md), especially for SSH access.
+The source/prebuilt installer adds the `wireguard-tui` alias; packages may
+provide only `wg-tui`.
+
+## Source installs and in-app updates
 
 ```sh
 git clone https://github.com/JamilleJung/wireguard-tui.git
@@ -22,92 +71,96 @@ cd wireguard-tui
 ./install.sh
 ```
 
-The installer detects your package manager (apt, dnf/yum, pacman, zypper, apk,
-xbps, eopkg), installs `wireguard-tools` plus a C linker, makes sure a Rust
-toolchain is present (via rustup if needed), builds the `wg-tui` binary (linked as `wireguard-tui`) as your
-own user, and installs the binary and privileged helper. By default it does not
-install a desktop launcher; `./install.sh --desktop` adds one if you want it.
-By default it sets up a passwordless `sudoers` drop-in scoped to the helper;
-`./install.sh --polkit` writes a polkit rule instead, and `./install.sh uninstall`
-removes the installed files.
+A source install detects packages, ensures Rust/a linker when needed, builds
+as the invoking user and installs both binaries. A direct root source install
+is guarded because `--allow-root` can permit building as root. The installer
+can use `su` when sudo is unusable while retaining the original normal user.
+It does not silently enable systemd-resolved; `setup` offers a confirmed repair.
 
-For tunnels with `DNS =`, the installer installs the compatibility package
-provided by the detected distro. It does not silently enable
-`systemd-resolved`: on RHEL-family systems, run `wg-tui setup` for a
-confirmation-based repair or use the manual command printed by
-`wg-tui doctor`.
+At startup `wg-tui` checks GitHub for a newer release. `u` acts on a detected
+update; it does not force another network check. The updater validates version
+syntax, downloads over HTTPS, verifies the signed manifest against the
+compiled-in public key, selects an exact checksum entry, and extracts to an
+exclusive `0700` directory. It re-runs the verified installer with prebuilt
+binaries and `--no-desktop`; a root-running app also supplies `--allow-root`.
+Restart the app after installation. Missing verification tools or invalid data
+refuse the update; minisign installation is attempted on a best-effort basis.
 
-> Note: `--polkit`, `--desktop`, and `uninstall` are flags for the **installer** (`install.sh`),
-> not for `wg-tui`. The `wg-tui` binary itself only accepts `wg-tui`,
-> `wg-tui doctor`, `wg-tui setup`, `wg-tui --version` and `wg-tui --help`.
+Disable checking with `WG_NO_UPDATE_CHECK=1` or the `no-update` file in
+`$XDG_CONFIG_HOME/wireguard-tui` (default `~/.config/wireguard-tui`). Prefer the
+package manager for packaged installs; the updater uses the source installer's
+`/usr/local` layout/default sudoers mode, not a distro package transaction.
 
-If you prefer a downloaded artifact, each release also ships build outputs such
-as `.deb`, x86_64 Linux tarball, aarch64 Linux tarball, and the signing files
-described next.
+## CI and release pipeline
 
-## ✅ How artifacts are signed and how to verify them
-
-Every release is signed with [minisign](https://jedisct1.github.io/minisign/), a
-tiny, modern signature tool. Two extra files travel with each release:
-
-- `SHA256SUMS` - the SHA-256 checksum of every release artifact.
-- `SHA256SUMS.minisig` - a minisign signature over that `SHA256SUMS` file.
-- `minisign.pub` - the public key used to verify the signature.
-
-Verifying is a two-step check: first prove the checksum file is authentic
-(minisign), then prove your downloaded file matches the checksum (`sha256sum`).
+The checked-in [CI workflow](../.github/workflows/ci.yml) runs formatting,
+clippy, locked tests/build, CLI doctor/help/version smoke checks, shellcheck,
+helper negative checks and installer sanity checks. Correct commands include:
 
 ```sh
-# 1. Verify the checksum list was signed by the project key.
-minisign -Vm SHA256SUMS -p minisign.pub
-
-# 2. Verify your downloaded artifact matches its recorded checksum.
-sha256sum -c SHA256SUMS
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --release --locked
+cargo audit --deny warnings
 ```
 
-If step 1 reports a good signature and step 2 prints `OK` for your file, the
-download is genuine and untampered. If either step fails, do not install the file.
+The [release workflow](../.github/workflows/release.yml) is triggered by a
+`vMAJOR.MINOR.PATCH` tag, and validates that it matches Cargo.toml. Manual
+workflow dispatch must also target a valid version tag. It:
 
-## 🔧 How releases are built
+1. Builds four musl targets with pinned cargo-auditable and per-target rust-lld.
+2. Audits dependencies, runs tests/smoke/shell checks, and builds the mandatory
+   native amd64 `.deb` using pinned cargo-deb.
+3. UPX-compresses binaries, stages tarballs with installer assets, and requires
+   each expected upload to exist.
+4. Collects the artifacts, generates a non-empty checksum manifest, signs it
+   with `MINISIGN_KEY`, and verifies with the committed public key.
+5. Publishes only after all build/package jobs succeed; signing failure or a
+   missing key stops publication. Only the publishing job has write permission.
 
-### 🔄 Continuous integration (every push and pull request)
+CI and release audit currently pass without advisory exceptions. That checks
+known advisories, not every possible bug. SHA-pinned Actions and version-pinned
+build tools improve traceability; no bit-for-bit reproducibility guarantee is
+made. The x86_64 output is smoke-tested on its runner; that does not establish
+runtime testing on every supported CPU/distro combination.
 
-CI guards quality before anything is tagged. On each change it runs:
+## Inspecting embedded dependency metadata
 
-- `cargo fmt --all - --check` - formatting must be clean.
-- `cargo clippy --all-targets - -D warnings` - lints are treated as errors, so
-  no warning slips through.
-- `cargo test` - the unit tests for config parsing, validation and tunnel-name
-  sanitisation run on every push and pull request.
-- `cargo build --release` - the project must compile in release mode.
-- A smoke test: `wg-tui --version` (or `wireguard-tui --version`) and `wg-tui --help` start and exit cleanly
-  without launching the full-screen UI, and `wg-tui doctor` prints its checklist
-  and exits with a valid code (0, 1 or 2).
-- Shell syntax/lint checks on `install.sh` and helper validation scripts.
-- Rust helper unit tests and negative helper tests prove traversal-style tunnel names are rejected before
-  any filesystem access.
+`cargo auditable build` embeds dependency data **before UPX compression**.
+The packed release ELF cannot be inspected directly by `cargo audit bin`.
+Work on a verified extracted binary copy, leaving the installed/original file
+untouched:
 
-### 🏷️ The tagged release flow
+```sh
+cp wg-tui wg-tui.audit
+upx -d wg-tui.audit
+cargo audit bin wg-tui.audit
+rm wg-tui.audit
+```
 
-Cutting a release is triggered by pushing a version tag (for example `v1.6.0`).
-At a high level the release job:
+The same process applies to `wg-helper`. Install suitable UPX/cargo-audit tools
+for your audit host. An uncompressed output from `cargo auditable build --release --locked` in a
+source checkout is another option for inspection. Updating source docs does
+not retroactively update the guide embedded into an already published binary;
+that requires a future build.
 
-1. Runs the CLI smoke checks plus helper and installer validation.
-2. Builds the release artifacts (including the mandatory `.deb` - a missing one
-   fails the release).
-3. Generates `SHA256SUMS` over the artifacts (using `nullglob` and verifying the
-   list is non-empty, so an empty or partial set cannot ship).
-4. Signs `SHA256SUMS` with minisign, producing `SHA256SUMS.minisig`, and publishes
-   `minisign.pub` alongside.
-5. Attaches everything to the GitHub Release for that tag.
+## Recent release highlights
 
-Because `wg-tui` and `wireguard-gui` are version-aligned, a release of one is cut
-in step with the other so the two stay feature-identical.
+- **1.9.1 (2026-11-02):** bounded/preflight backup restore, inline comments,
+  helper output/timeout fixes, exact kill-switch names and rule ordering,
+  private signed-update staging and exact checksums, installer assets/prebuilt
+  handling, and refreshed dependencies with no audit exceptions. Existing
+  kill-switch rules need an off/on cycle after upgrading.
+- **1.9.0 (2026-07-27 source changes):** inactive resolvectl shim detection and
+  confirmed systemd-resolved repair.
+- **1.8.0:** diagnostics, in-app guide/changelog, all keys enabled without a
+  mode switch, and a default desktop launcher.
+- **1.7.x:** backup manager, log/copy controls and signed in-app updates.
 
-CI and release packaging run `cargo audit --deny warnings`. The current lockfile
-passes without advisory exceptions after refreshing dependencies and removing
-the obsolete `paste` and `lru` exceptions. Every release binary embeds an SBOM
-via `cargo auditable build`; `cargo audit bin <file>` checks that compiled set.
+The notes below are retained release history, not current installation or key
+instructions. Some legacy entries describe the desktop sibling's copy/log UI;
+use the [current tutorial](TUTORIAL.md) for terminal behavior.
 
 ## 📋 Version history
 
@@ -380,16 +433,11 @@ Highlights:
 - A universal installer (`install.sh`) for apt, dnf/yum, pacman, zypper, apk, xbps
   and eopkg, with a minimal-install dependency check.
 
-## 📜 Versioning policy
+## Versioning policy
 
-- The project follows [Semantic Versioning](https://semver.org/) - `MAJOR.MINOR.PATCH`.
-  In short: PATCH for backward-compatible fixes, MINOR for backward-compatible new
-  features, and MAJOR for incompatible changes.
-- `wg-tui` (terminal UI) and `wireguard-gui` (desktop GUI) are kept in lockstep:
-  they share one version number and are released together so they stay
-  feature-identical. A given version of one behaves the same as the same version
-  of the other, apart from the obvious terminal-versus-window difference. The
-  realignment to a single shared number happened at 1.3.4 (see above).
-- Every release is tagged (`vMAJOR.MINOR.PATCH`), recorded in
-  [CHANGELOG.md](../CHANGELOG.md), and published on GitHub Releases with the
-  minisign signing files described at the top of this page.
+Versions follow `MAJOR.MINOR.PATCH`; tagged builds use `vMAJOR.MINOR.PATCH` and
+must match Cargo.toml. Coordinate version/package metadata, release notes,
+lockfile changes, quality checks and signed artifacts when releasing. Sharing a
+version number with the desktop sibling does not imply identical frontend
+features. Historical notes above refer to their own release; current behavior
+is documented in the README/tutorial and current changelog entries.

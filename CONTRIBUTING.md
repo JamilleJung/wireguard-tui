@@ -1,154 +1,135 @@
-# 🙏 Contributing to wireguard-tui
+# Contributing to wireguard-tui
 
-Thanks for your interest in improving `wg-tui` (also `wireguard-tui`)!
-This is a small, hackable project - issues, ideas, discussions, and pull
-requests are all welcome.
+Bug reports and focused pull requests are welcome. The current release is
+1.9.1; use [CHANGELOG.md](CHANGELOG.md) for user-visible changes.
 
-## 🛠️ Getting set up
+## Set up and run
 
 ```sh
 git clone https://github.com/JamilleJung/wireguard-tui.git
 cd wireguard-tui
-
-# One-command install (build deps + wireguard-tools + Rust + build + install):
-./install.sh
-
-# Or, if you already have the toolchain:
-cargo build --release
-cargo run --release
+cargo build --release --locked
+cargo run --release --locked --bin wg-tui -- --help
 ```
 
-The binary is `wg-tui`; a symlink `wireguard-tui` is created by `install.sh`.
+Use current stable Rust (edition 2024), a C linker/toolchain, and Linux for
+runtime integration checks. The TUI has no graphical toolkit requirement.
+`wg` and `wg-quick` come from `wireguard-tools`; an editor, helper authorization,
+and suitable DNS/firewall tools are runtime concerns. `./install.sh` installs
+these prerequisites and the built app/helper; see [README.md](README.md).
+The source installer creates the `wireguard-tui` alias; it is not a second Cargo
+binary. The two Cargo binaries are `wg-tui` and `wg-helper`.
 
-Build prerequisites (the installer handles these automatically):
-- Rust toolchain (via [rustup](https://rustup.rs))
-- `wireguard-tools` (`wg` + `wg-quick`)
-- No GUI libraries - the TUI is deliberately dependency-light and works over SSH.
+Running the UI operates on real `/etc/wireguard` tunnels. Use a disposable Linux
+VM for actions that change networking, firewall rules, or authorization.
+Platform-independent tests can also run on other Unix hosts; that does not make
+those hosts supported WireGuard management targets.
 
-`cargo run --release` talks to real tunnels. Test changes in a throwaway VM
-or with a local test `/etc/wireguard` setup if you don't want to touch
-production configs.
+## Required checks
 
-## 📁 Project layout
-
-| Path | Purpose |
-|------|---------|
-| `src/main.rs` | App entrypoint, event loop, key handling, rendering |
-| `src/backend.rs` | Helper client, WireGuard/system ops, QR, export |
-| `src/config.rs` | WireGuard config parsing and validation |
-| `src/create.rs` | Easy Mode tunnel templates and presets |
-| `src/clipboard.rs` | OSC52 single-field copy normalization |
-| `src/secrets.rs` | Secret redaction and script-hook detection |
-| `src/validation.rs` | Tunnel name validation and import-name sanitization |
-| `src/doctor.rs` | Read-only system checks and setup hints |
-| `src/bin/wg-helper.rs` | Privileged Rust helper - the security boundary |
-| `install.sh` | Distro-aware source installer |
-| `tests/helper-validation.sh` | Shell tests for helper name validation |
-| `tests/installer-sanity.sh` | Installer content sanity checks |
-| `docs/` | Tutorial, distro guide, release notes |
-| `packaging/` | Polkit, AUR/RPM/APK/Void metadata, optional desktop assets |
-| `.github/workflows/` | CI and release automation |
-
-## ✅ Before you open a PR
-
-CI runs these and **will fail the build** if they don't pass. Run them locally:
+These match the CI quality gates:
 
 ```sh
-# Rust quality gates
-cargo fmt --all - --check
-cargo clippy --all-targets - -D warnings
-cargo test
-cargo build --release
-
-# Shell linting
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --release --locked
 bash -n install.sh
+bash -n tests/helper-validation.sh
 bash -n tests/installer-sanity.sh
 shellcheck -S warning install.sh tests/helper-validation.sh tests/installer-sanity.sh
-
-# Helper smoke tests
 bash tests/helper-validation.sh target/release/wg-helper
 bash tests/installer-sanity.sh
-
-# App smoke tests
 target/release/wg-tui --version
 target/release/wg-tui --help
-target/release/wg-tui doctor
 ```
 
-## 📝 Guidelines
+Run `target/release/wg-tui doctor` separately: `0`, `1`, and `2` are intentional
+results depending on the host's prerequisites. `setup` also returns the
+refreshed doctor result. Neither is an unconditional success-only smoke test.
+Install and run the audit gate when changing dependencies:
 
-### 📝 General
+```sh
+cargo install cargo-audit --locked
+cargo audit --deny warnings
+```
 
-- Keep the diff focused; match the surrounding Rust style.
-- Write clear commit messages: short imperative subject, optional body
-  explaining *why*. Reference issues with `#123`.
-- Add a line to `CHANGELOG.md` under `[Unreleased]` for user-facing changes.
-- Prefer pure-Rust dependencies; the TUI builds with no GUI/C library deps.
+The current locked graph needs no advisory exceptions. Do not mask a new audit
+finding to make CI green. Investigate dependency updates and explain any
+unavoidable upstream limitation in the change description.
 
-### 🔒 Helper safety (`src/bin/wg-helper.rs`)
+## Code map
 
-The helper is the **privileged boundary** - it runs as root. Preserve or
-strengthen these properties:
+| Path | Purpose |
+|---|---|
+| `src/main.rs` | Event loop, context-sensitive keys, views, editor and setup flows |
+| `src/backend.rs` | Helper client, status, diagnosis, QR, export and backup preflight |
+| `src/bin/wg-helper.rs` | Privileged fixed verbs, writes, timeouts and firewall rules |
+| `src/config.rs` | Config parsing and frontend validation, including inline comments |
+| `src/validation.rs` | Tunnel names and safe import-name generation |
+| `src/create.rs` | Interface/full/split tunnel templates |
+| `src/clipboard.rs` | Native clipboard tools, OSC 52 fallback and field normalization |
+| `src/secrets.rs` | Redaction and root script-hook detection |
+| `src/doctor.rs`, `src/update.rs` | Read-only prerequisite checks and signed updates |
+| `tests/` | Helper negative tests and installer sanity checks |
+| `packaging/`, `.github/workflows/` | Distro recipes, assets, CI and signed release jobs |
+| `docs/help.md`, `CHANGELOG.md` | Text embedded into the app by `include_str!` |
 
-- **Fixed verbs only.** Every operation is a named verb (`list`, `up`, `save`,
-  `killswitch-enable`, ...). No caller-controlled executable paths.
-- **Fixed paths.** `WG_DIR` is `/etc/wireguard`. Tools are looked up in
-  `/usr/sbin:/usr/bin:/sbin:/bin` only.
-- **Strict name validation.** Tunnel names must match
-  `^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`. No `..`, `/`, `\`, or shell
-  metacharacters.
-- **No `sh -c`.** All subprocess calls use argv arrays directly.
-- **Timeouts.** Every external call has a `Duration` bound.
-- **Atomic writes.** Temp file + best-effort `sync -f` + `rename`.
-- **Backups.** Timestamped copy in `/etc/wireguard/.backup/` before any
-  destructive operation.
-- **Logging.** Mutating actions are logged via `logger` without key material.
-- **Config re-validation.** The helper validates config shape before save/rename
-  (second check, inside the privileged boundary).
+## Implementation guidelines
 
-### 🎨 UI notes
+Keep the diff focused and add meaningful regression tests for changed behavior.
+Existing tests cover config/name validation, backup preflight/limits, secret
+redaction, clipboard normalization, diagnostics, updater checks, large command
+output/timeouts, and exact firewall rule names/order. Avoid stale fixed test
+counts in documentation. Update the README/tutorial when behavior changes and
+add a changelog entry under `[Unreleased]` for future work.
 
-- Keep the UI keyboard-driven and discoverable.
-- Update the `?` help screen and footer hints when you add or change a key.
-- Advanced-mode keys: add to `is_advanced_key()` and the Advanced keymap table.
-- Editor flow: use `run_editor()` - it handles temp files (mode `0600`,
-  `O_EXCL`), validation, and cleanup. Don't bypass it.
+All keys work without a mode switch. The "Advanced" help group is descriptive;
+there is no `is_advanced_key()` or saved Easy/Advanced setting to update. Match
+keys to `handle_key()` and `render_help()` in `src/main.rs`, including Log-tab
+conflicts (`g`, `c`, `w`, `Enter`) and popup consumption. Update footer hints and
+help when adding a binding. Use `run_editor()` for raw editing; preserve terminal
+suspend/restore, private temporary files, validation, and cleanup. The TUI does
+not use the desktop client's structured form editor.
 
-### ➕ Adding a feature
+Keep helper changes inside its restricted boundary:
 
-1. **New key binding** → add to `handle_key()` + update `is_advanced_key()` if
-   needed + update help screen + footer keymap.
-2. **New backend operation** → add a helper verb in `src/bin/wg-helper.rs`,
-   then call it from `src/backend.rs`.
-3. **New Easy Mode preset** → add to `src/create.rs`.
-4. **New validation rule** → add to `src/config.rs` or `src/validation.rs`.
-5. **New doctor check** → add to `src/doctor.rs`.
+- Fixed verbs, `/etc/wireguard` destinations, and trusted tool search directories
+  `/usr/sbin:/usr/bin:/sbin:/bin`.
+- Validate names before filesystem operations: ASCII alphanumeric first,
+  letters/digits/`_`/`-`/`.` thereafter, at most 15 bytes, no `..` or `.conf` suffix.
+- Use argv arrays for helper commands. Preserve bounded process groups and
+  concurrent pipe draining so output cannot fill a pipe and hang the timeout.
+- Revalidate saved/renamed configs and reject root script hooks inside the
+  helper, even when the frontend already checked them.
+- Preserve exclusive `0600` temp creation, file `sync_all()`, atomic rename,
+  directory sync, and timestamped backups before overwrite/rename/delete.
+- Log mutation metadata without private or preshared key material.
+- Preserve exact tunnel-name firewall comments, reject-before-existing-allow
+  placement, IPv6 coverage checks, and cleanup paths.
+- Keep backup restore preflight bounded and updater verification anchored to
+  the compiled-in key; do not trust a key shipped inside the download.
 
-Add tests for new logic. The test suite covers:
-- `src/bin/wg-helper.rs` - name validation, config shape, secret redaction,
-  kill switch rule generation (18 tests)
-- `src/main.rs` - backend, clipboard, config, create, doctor, secrets,
-  validation (25 tests)
+For a debug helper override:
 
-## 🐛 Reporting bugs
+```sh
+cargo build --locked --bin wg-helper
+WG_HELPER=/absolute/path/to/wg-helper cargo run --locked --bin wg-tui
+```
 
-Open an issue with:
-- Your distro and version
-- Terminal emulator and `$TERM`
-- `wg-tui --version` output
-- Steps to reproduce
-- Any relevant `wg-quick` or `journalctl` output (redact private keys!)
+Debug builds accept `WG_HELPER` directly. Release builds require
+`WG_ALLOW_UNSAFE_HELPER=1`, an absolute regular file owned by root, and no group
+or other write bits. This override does not create a sudoers/polkit grant;
+installed-path authorization still applies. Prefer installed standard paths for
+normal use.
 
-**Never paste real private keys, preshared keys, or production configs into an issue.**
+## Reports and pull requests
 
-## 💡 Feature requests
+Include the distro, version/commit, `wg-tui --version`, terminal and `$TERM`,
+reproduction steps, and relevant redacted errors. Explain the behavior before
+and after the change and list the checks actually run. Do not include private
+keys, preshared keys, or production configs. Report exploitable issues privately
+using [SECURITY.md](SECURITY.md).
 
-Open a discussion or issue. Describe the workflow you want, not just the key
-binding. The project philosophy values staying close to `wg`/`wg-quick`
-primitives - proposals that respect that are more likely to be accepted.
-
-## 📄 License
-
-By contributing, you agree that your contributions are licensed under the
-project's [MIT License](LICENSE). WireGuard® is a registered trademark of
-Jason A. Donenfeld. This is an independent, unofficial project.
+By contributing, you agree to the [MIT license](LICENSE). This project is
+independent of the WireGuard project.

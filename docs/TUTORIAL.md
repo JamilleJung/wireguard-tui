@@ -1,487 +1,223 @@
-# 📖 wireguard-tui tutorial (wg-tui)
+# wireguard-tui tutorial
 
-A complete, beginner-friendly walkthrough of `wg-tui`, the terminal UI for
-managing WireGuard tunnels on Linux. No prior WireGuard knowledge is assumed.
-Every command here is copy-pasteable.
+This guide describes **1.9.1**. `wg-tui` manages plain Linux WireGuard configs
+with a keyboard interface. The [distro guide](DISTROS.md) covers prerequisites;
+[the concepts guide](help.md) explains keys, peers, and routing.
 
-This is the current release: **1.6.3**.
+## 1. Install and check the system
 
----
-
-## 1. 🎯 What this is and who it's for
-
-`wg-tui` (also available as `wireguard-tui`) is a terminal program (a "TUI" - text user interface) that lists your
-WireGuard tunnels, shows live status, and lets you connect, edit, import, and
-share them - all from the keyboard, with no graphical desktop required. It is a
-single native Rust binary with no GUI or C library dependencies, so it works the
-same on your laptop and over SSH on a minimal server.
-
-It is built for two kinds of people:
-
-- **VPN clients** - you dial out to a commercial provider, or to your own server,
-  and you want an easy way to turn a tunnel on and off and watch the connection.
-- **Server / gateway admins** - a box that *accepts* incoming peers and routes
-  them somewhere.
-
-The difference matters: a client needs almost nothing, while a server also needs
-firewall, IP-forwarding, and NAT changes. To find out which you are, and exactly
-what to install for your distro, read the companion guide:
-
-- **[docs/DISTROS.md](DISTROS.md)** - client vs server, per-distro install, what
-  survives a reboot, and the firewall question.
-
-> Prefer a window over a terminal? The sibling app
-> **[wireguard-gui](https://github.com/JamilleJung/wireguard-gui)** is the same
-> tool as a desktop GUI. Both share the same privilege model.
-
----
-
-## 2. 📦 Requirements and install
-
-### One-command install
+Run the source installer as your normal user:
 
 ```sh
 git clone https://github.com/JamilleJung/wireguard-tui.git
 cd wireguard-tui
 ./install.sh
+wg-tui doctor
 ```
 
-Then launch it:
+The installer can install WireGuard tools, runtime dependencies, Rust and a
+linker for a source build, then install the application and privileged helper.
+It defaults to a scoped sudoers grant and installs a terminal desktop launcher
+and icon. Use `./install.sh --no-desktop` to omit the launcher.
+`./install.sh --polkit` selects group-restricted polkit authorization instead.
+The installer attempts group setup for that mode; log out/in and check
+`id -nG`. Its passwordless rule requires an active local session, so SSH users
+usually want the default sudoers grant.
+
+If sudo is unusable, the installer can request the root password once through
+`su` while remembering your normal user. A direct root login requires an
+explicit `--allow-root`; prefer a normal user for source builds. Do not assume
+starting a fresh `su -` login preserves the original user.
+
+You can also install a verified prebuilt tarball or `.deb`. See
+[release instructions](RELEASES.md) before downloading: a release tarball
+contains both binaries and automatically skips Rust/compiler setup, while a
+source archive still needs a build. The `.deb` installs the polkit rule but
+does not create the `wireguard` group or grant membership automatically.
+
+`doctor` is read-only. Exit `0` means no warnings, `1` means warnings, and `2`
+means critical prerequisites are missing. It checks WireGuard tools, the
+helper/authorization, `/etc/wireguard`, resolvconf integration, systemd/journal
+availability, and clock synchronization. It does not prove a tunnel can connect.
 
 ```sh
-wg-tui
-# or: wireguard-tui
+wg-tui setup       # offers confirmed tools/resolver repairs
+wg-tui --version   # -V also works
+wg-tui --help      # -h also works
+wg-tui             # open the full-screen interface
 ```
 
-### ⚙️ What the installer does
-
-`./install.sh` detects your package manager - apt, dnf/yum, pacman, zypper, apk,
-xbps, or eopkg - and then:
-
-- installs `wireguard-tools` (the `wg` / `wg-quick` commands) and a C linker,
-- ensures a Rust toolchain (via `rustup` if you don't already have one),
-- builds the project **as your normal user** (never as root), and
-- installs the `wg-tui` binary (linked as `wireguard-tui` too) and privileged helper,
-- sets up passwordless authorization so day-to-day use never prompts you.
-
-By default the installer does not install a desktop launcher or icon, keeping
-server installs minimal. If you want a local application-menu entry, use:
-
-```sh
-./install.sh --desktop
-```
-
-> It does **not** bundle WireGuard itself - no kernel modules, no vendored
-> `wg`/`wg-quick`. It uses your distro's `wireguard-tools`. WireGuard has been in
-> the mainline Linux kernel since 5.6 (2020); `wg-quick` loads the module on
-> demand when you connect.
-
-### The no-sudo / passwordless explanation
-
-All root-level work in `wg-tui` goes through one tiny, auditable Rust helper
-(`wg-helper`). So that you are never nagged for a password during normal use, the
-installer grants passwordless access to *just that one helper*:
-
-- By default it writes a **sudoers drop-in** scoped to the helper.
-- If your system can't use `sudo` at all (for example a fresh Debian server where
-  your login user is not in the sudoers file), the installer re-runs itself as
-  root with a **single ROOT-password prompt**, installs `sudo` if it is missing,
-  and writes a passwordless drop-in for *your* user - so `wg-tui` works as a normal
-  user even though you aren't in the `sudo` group.
-
-The build always runs as the invoking user; only the privilege-setup steps need
-root.
-
-### --polkit (use a polkit rule instead of sudoers)
-
-If you prefer a polkit rule over a sudoers drop-in:
-
-```sh
-./install.sh --polkit
-```
-
-Note `--polkit` is an **installer** flag, not a `wg-tui` flag. This is also the
-fix to try if the installer reports that the sudoers drop-in was skipped.
-
-### Manual build (developers)
-
-```sh
-cargo build --release        # ./target/release/wg-tui
-cargo test                   # unit tests (parsing, validation, names)
-./target/release/wg-tui --version
-```
-
-### Uninstall
-
-```sh
-./install.sh uninstall
-```
-
-(See also section 12.)
-
----
-
-## 3. 🚀 First run
-
-`wg-tui` (or `wireguard-tui`) has two read-only / guided commands that check and fix your system. They
-do **not** launch the full-screen UI - they print and exit, which makes them
-useful to run first over SSH.
-
-### Check your system: wg-tui doctor
-
-```sh
-wg-tui doctor     # or: wireguard-tui doctor
-```
-
-`doctor` is read-only and needs no root. It prints a plain-language checklist:
-WireGuard tools, the privileged helper and its authorization, `/etc/wireguard`,
-DNS-for-tunnels (resolvconf), systemd, and journald. It exits with a status code
-so you (or a script) can tell at a glance how healthy the box is:
-
-| Exit code | Meaning |
-|-----------|---------|
-| `0` | All OK |
-| `1` | Usable, with warnings |
-| `2` | Something critical is missing |
-
-### Fix what's missing: wg-tui setup
-
-```sh
-wg-tui setup      # or: wireguard-tui setup
-```
-
-`setup` is a guided, confirmation-based fix. It offers to install
-`wireguard-tools` via your package manager, offers to install a resolvconf
-provider if a `DNS =` line would otherwise fail, and points you at the installer
-for the helper. It **never connects tunnels or enables start-on-boot** - you stay
-in control.
-
-### Other CLI commands
-
-```sh
-wg-tui              # launch the interactive UI
-wg-tui --version    # print the version and exit
-wg-tui --help       # show usage and exit
-```
-
-### Easy vs Advanced mode
-
-When you launch the UI, you start in **Easy mode** (the default for new users).
-Easy mode shows only the everyday actions:
-
-- connect / disconnect
-- import
-- create a new tunnel
-- start-on-boot
-- remove
-- Show QR
-
-Press **`m`** to switch to **Advanced mode**, which adds the expert actions: edit,
-generate keys, show running config, kill switch, save live state, rename, and
-export. Your choice is remembered (saved under
-`~/.config/wireguard-tui/mode`), so the next launch starts in the mode you left.
-
-If you press an advanced key while in Easy mode, the footer reminds you:
-`Advanced action - press 'm' to switch to Advanced mode`.
-
----
-
-## 4. 📥 Get a tunnel in three ways
-
-A "tunnel" is just a `.conf` file in `/etc/wireguard`. Here are the three ways to
-get one. Press **`r`** any time to refresh the list.
-
-### (a) Import an existing provider .conf
-
-If your VPN provider (or your own server) gave you a `.conf` file:
-
-1. Press **`i`** to open the import file browser.
-2. Move with **`Up`/`k`** and **`Down`/`j`**; press **`Enter`** (or `Right`/`l`)
-   to enter a directory, **`Backspace`** (or `Left`/`h`) to go up a level.
-3. Highlight the `.conf` file and press **`Enter`** to import it.
-4. To import several at once, press **`Space`** to mark each file, then **`Enter`**
-   to bulk-import all the marked ones.
-
-Press **`Esc`** to cancel the browser.
-
-### (b) Import from a QR-code image
-
-If you have a screenshot or photo saved as a PNG or JPG of a WireGuard QR code,
-`wg-tui` (or `wireguard-tui`) can decode it:
-
-1. Press **`i`** to open the same import browser.
-2. Navigate to the image file (`.png` / `.jpg`) and press **`Enter`**.
-
-`wg-tui` (or `wireguard-tui`) reads the QR out of the image and imports it as a normal tunnel. (To go
-the other way - put a tunnel onto your phone - see section 6.)
-
-### (c) Create a new tunnel from scratch and generate keys
-
-This is available in **Easy mode** because creating a first tunnel is a normal
-setup workflow.
-
-1. Press **`n`** to create a new tunnel. You will be prompted for a name (up to
-   15 characters); press **`Enter`** to confirm or **`Esc`** to cancel.
-2. Choose a preset: **`i`** for Interface only, **`f`** / **`Enter`** for a
-   full-tunnel client, or **`s`** for a split-tunnel client.
-3. `wg-tui` (or `wireguard-tui`) creates a template with a freshly generated private key and opens it
-   in your editor (`$VISUAL`/`$EDITOR`, falling back to `nano`). Fill in the rest
-   (address, peer public key, endpoint, allowed IPs), then save and quit the
-   editor.
-
-Need extra keys while editing? Press **`g`** to generate a keypair plus a preshared
-key (`wg genkey` / `wg genpsk`) and have them shown to you to copy into the config.
-
-> The temporary file the editor opens is mode `0600` and is removed afterwards.
-
----
-
-## 5. 🔌 Connect, disconnect, and read status
-
-### Connect / disconnect
-
-Highlight a tunnel in the list and press **`Enter`** or **`a`** to toggle it
-between connected and disconnected. Behind the scenes this runs `wg-quick up` /
-`wg-quick down` through the helper. In the list, a green `*` to the left of a
-tunnel name means it is up; a dim `-` means it is down.
-
-### Reading the detail view
-
-With a tunnel selected, the detail pane merges its on-disk config with live data
-from `wg show`, refreshed about every 1.5 seconds:
-
-- **Public key**, **listen port**, **addresses**, and **DNS** for the interface.
-- For each peer: the **latest handshake** and **transfer** (bytes sent/received).
-- **Live down/up speed** - real-time throughput for the selected tunnel.
-- A **Connection** health line derived from the most recent handshake:
-  roughly **OK** (recent handshake), **stale** (handshake getting old), or
-  **waiting** (no handshake yet).
-
-Quick reference for what a healthy client tunnel looks like: a recent **latest
-handshake** (seconds/minutes ago, not hours), transfer counters that climb as you
-use the network, and a non-zero ↓/↑ speed when traffic is flowing.
-
-Press **`y`** to copy the interface public key to your clipboard (via the OSC 52
-terminal escape, so it works locally and over SSH in supporting terminals) - handy
-when a server admin asks for your public key.
-
----
-
-## 6. 📱 Put a tunnel on your phone with Show QR
-
-To move a tunnel to the WireGuard mobile app, render it as a scannable QR code:
-
-1. Highlight the tunnel.
-2. Press **`Q`** (capital Q). The QR code is drawn right in the terminal.
-3. In the WireGuard mobile app, choose "Add tunnel" -> "Scan from QR code" and
-   point your phone at the screen.
-
-> **Security warning:** the QR code contains the tunnel's **private key**. Anyone
-> who photographs your screen gets full access to that tunnel. Only show a QR when
-> it is safe for someone to see your screen.
-
-If the terminal is too small, `wg-tui` (or `wireguard-tui`) will tell you the QR is bigger than the
-window rather than drawing an unscannable, cropped code. Enlarge the window (or
-zoom out) and press **`Q`** again.
-
----
-
-## 7. ⚡ Start-on-boot
-
-To have a tunnel come up automatically at every boot, highlight it and press
-**`s`** to toggle start-on-boot. This flips the systemd `wg-quick@<name>` unit.
-
-> **Non-systemd limitation:** this one feature needs systemd. On OpenRC (Alpine),
-> runit (Void), or other non-systemd setups, the toggle is unavailable - everything
-> else in the app still works. There, enable boot-time tunnels with your distro's
-> own service manager (for example an OpenRC init script or runit service that runs
-> `wg-quick up <name>`). See [docs/DISTROS.md](DISTROS.md) for the details.
-
-Connecting a tunnel once (section 5) does **not** survive a reboot; only
-start-on-boot does.
-
----
-
-## 8. ✏️ Edit safely
-
-This needs **Advanced mode** (press **`m`**).
-
-1. Highlight a tunnel and press **`e`** to open it in your editor
-   (`$VISUAL`/`$EDITOR`, falling back to `nano`).
-2. Make your changes, save, and quit.
-
-`wg-tui` (or `wireguard-tui`) **validates the config before saving** - it checks keys, addresses,
-endpoint, and peers, so a typo is caught up front instead of only when
-`wg-quick up` fails later. The helper also performs a second basic config-shape
-check before replacing files. (A bracketed IPv6 endpoint like
-`[2001:db8::1]:51820` is accepted.)
-
-If the tunnel you edited is **currently running**, the change is applied live with
-`wg syncconf`, so your connection and its peers are not dropped while you tweak it.
-
-> If a config contains `PostUp` / `PreUp` / `PostDown` / `PreDown` lines, the app
-> warns you - those run shell commands as root, so review them before activating.
-> On a server you will deliberately have a NAT/masquerade `PostUp`; that warning is
-> expected. See [docs/DISTROS.md](DISTROS.md) section 6.
-
----
-
-## 9. 🗂️ Rename, remove, export
-
-| Action | Key | Mode | Notes |
-|--------|-----|------|-------|
-| Rename a tunnel | `R` (capital) | Advanced | Type the new name (up to 15 chars), `Enter` to confirm, `Esc` to cancel. |
-| Remove a tunnel | `d` | Easy or Advanced | Confirmation prompt: press `y`/`Y` to confirm, anything else to cancel. |
-| Export all tunnels | `x` | Advanced | Writes a `.zip` of every tunnel to `~/wireguard-tunnels.zip`. |
-
-Two more Advanced-mode tools for live tunnels:
-
-- **`c`** - show a running tunnel's live config (`wg showconf`).
-- **`p`** - save a running tunnel's live state back into its `.conf`
-  (`wg-quick save`).
-
-> **Security warning:** an exported `.zip` contains your tunnels' **private keys**.
-> Keep it somewhere safe and delete it when you're done.
-
----
-
-## 10. ⌨️ Full key map reference
-
-These are the keys in the interactive UI. Press **`?`** at any time for the
-in-app help.
+`setup` does not connect tunnels, create `/etc/wireguard`, install the helper,
+or enable tunnel start-on-boot. It directs you to the installer for the helper;
+the helper creates `/etc/wireguard` on the first save. Setup returns a fresh
+doctor status. The source installer also creates a `wireguard-tui` command
+alias; packages may provide only `wg-tui`.
+
+## 2. Import a tunnel
+
+Press `i`. The browser starts in the current directory and lists directories
+and `.conf`, `.png`, `.jpg`, `.jpeg` files; hidden files are skipped.
+
+1. Use `Up`/`k` and `Down`/`j` to select an entry.
+2. Use `Right`/`l` or `Enter` to enter a directory; `Left`/`h`/`Backspace` goes up.
+3. Select a `.conf` or QR image and press `Enter` to import it.
+4. For several files, mark them with `Space`, then press `Enter` to import the
+   marked set while a file is highlighted. `Esc` cancels.
+
+Imported file names are sanitized to Linux interface names and made unique.
+Review the imported details before activating. Frontend validation catches
+common config mistakes; the helper rechecks saved content and rejects
+`PreUp`, `PostUp`, `PreDown`, and `PostDown` root script hooks. A trusted
+administrator who needs hooks must manage those config files directly as root.
+
+## 3. Create and edit a tunnel
+
+All keys are available immediately; there is no Easy/Advanced mode switch and
+`m` does nothing. Press `?` for the grouped key map.
+
+Press `n`, enter a name up to 15 ASCII characters, then select a preset:
+`i` for Interface only, `f`/`Enter` for full tunnel, or `s` for split tunnel.
+The app generates a private key and opens the raw config in `$VISUAL`, then
+`$EDITOR`, then `nano`. Fill in the assigned address and peer data, save, and
+exit successfully. To edit an existing tunnel use `e`; `+` appends a peer
+section for you to complete in the same editor. It must have valid PublicKey
+and AllowedIPs before it can be saved.
+
+Names start with a letter/digit and use only letters/digits/`_`/`-`/`.`; `..`
+and a `.conf` suffix are rejected. WireGuard inline `#` comments and repeated
+Address/DNS/AllowedIPs lines are supported. The temporary editor file is `0600`
+and removed after editing. Editor command strings are split on whitespace;
+use a wrapper script if you need shell quoting or several shell commands.
+
+`g` displays a new keypair and preshared key. That popup includes secret keys;
+keep the screen private. The TUI uses raw text editing rather than the desktop
+client's form editor.
+
+Editing a running tunnel saves to disk then attempts `wg syncconf` for
+WireGuard-level changes. Changes to Address, DNS, MTU, or routing still need a
+reconnect, even when the app says "applied live". Quick-add peer saves only and
+does not live-sync. `c` shows running config; `p` runs `wg-quick save`, replacing
+the saved state after a backup.
+
+## 4. Connect and inspect
+
+Select a tunnel and press `Enter` or `a` to run `wg-quick up`/`down` through the
+helper. The list uses a green `*` for active and a dim `-` for inactive. Active
+means an interface is up, not that every peer has completed a handshake.
+
+The detail view combines saved config and live `wg show` data about every
+1.5 seconds. It shows interface/peer public keys, address, DNS, endpoint,
+allowed IPs, keepalive, handshake, counters, and current throughput. The
+connection summary uses the most recent peer handshake; check individual peers
+when managing a server.
+
+Use `h`/`l` or Left/Right to focus a detail field and `y` to copy it. Copy tries
+native tools (`wl-copy`, `xclip`, `xsel`) before OSC 52. Over SSH, OSC 52 works
+only when the local terminal/multiplexer allows it; a working remote display
+clipboard can take precedence. A sent OSC 52 escape is not proof the local
+clipboard accepted it.
+
+`D` diagnoses the selected tunnel: clock status, active interface, handshake,
+endpoint ping, and DNS lookup. A failed ICMP ping does not prove the WireGuard
+UDP endpoint is down. Check endpoint/port, both peer public keys, matching PSK,
+firewall/routing, and time synchronization when a tunnel is active but stalled.
+
+## 5. Everyday actions
 
 | Key | Action |
-|-----|--------|
-| `Up`/`k`, `Down`/`j` | Move selection (scroll the Log tab) |
-| `Enter` / `a` | Activate or deactivate the selected tunnel |
-| `n` | Create a new tunnel (preset + generated key + `$EDITOR`) |
-| `e` | Edit the selected tunnel in `$EDITOR` |
-| `i` | Import from a `.conf` file or QR image |
-| `g` | Generate a keypair + preshared key |
-| `c` | Show a running tunnel's live config (`wg showconf`) |
-| `d` | Delete the selected tunnel |
-| `R` | Rename the selected tunnel |
-| `s` | Toggle start-on-boot |
-| `K` | Toggle the helper-managed kill switch for an active tunnel (nftables preferred; iptables fallback) |
-| `p` | Save a running tunnel's live state to its `.conf` |
-| `Q` | Show the tunnel as a QR code |
-| `y` | Copy the interface public key to the clipboard (OSC 52) |
-| `x` | Export all tunnels to `~/wireguard-tunnels.zip` |
-| `Tab` | Switch between the Tunnels and Log tabs |
-| `m` | Toggle Easy / Advanced mode |
-| `r` | Refresh now |
-| `?` | Show help |
-| `q` / `Esc` | Quit |
+|---|---|
+| `s` | Enable/disable the systemd `wg-quick@<name>` unit for future boots |
+| `Q` | Show the full saved config as a terminal QR code |
+| `R` | Rename; the helper stops an active tunnel and does not reactivate it |
+| `d` | Delete after `y`/`Y` confirmation; backs up the file first |
+| `x` | Export all configs to `~/wireguard-tunnels.zip` |
+| `H`, `w`, `A` | Concepts guide, changelog, About |
 
-**In the import browser:** `Up`/`k`, `Down`/`j` move; `Enter` (or `Right`/`l`)
-opens a directory or imports the highlighted file; `Backspace` (or `Left`/`h`)
-goes up a level; **`Space`** marks a file for bulk import and **`Enter`** then
-imports all marked files; `Esc` cancels.
+The QR and ZIP contain private keys. Enlarge the terminal if a QR does not fit.
+Start-on-boot is systemd-only; it does not connect immediately. On OpenRC/runit,
+manage boot activation with your distro's service manager.
 
-**Easy mode** shows only the everyday actions (connect/disconnect, new tunnel,
-import, start-on-boot, remove, Show QR). **Advanced mode** (press `m`) adds edit,
-generate keys, running config, kill switch, save-live, rename, and export.
+## 6. Log tab
 
----
+Press `Tab` (or Shift+Tab). The helper reads its activity log and `wg-quick@*`
+journal entries; systems without journald show a placeholder.
 
-## 11. 🐛 Troubleshooting
+| Key | Action |
+|---|---|
+| `Up`/`k`, `Down`/`j`, `PgUp`/`PgDn` | Move cursor or page |
+| `Home`/`g`, `End`/`G`, `h`/`l` | Top, bottom, horizontal scroll |
+| `f`, `t`, `/` | Follow newest, filter selected tunnel, edit text filter |
+| `y`/`Enter` | Copy current line or visual selection |
+| `v`, `Y` | Start/end visual selection, copy whole filtered log |
+| `c`, `r` | Clear the displayed view, reload from journal |
+| `w` | Save full fetched log to `~/wireguard-tui-log.txt` (`0600`) |
 
-### DNS setup fails / a tunnel with DNS = won't connect
+View filters do not limit the saved file. Clearing affects only the view, not
+the system journal. `Esc` cancels a visual
+selection before it quits the application. Log-tab keys override their tunnel
+actions: `g` goes to the top, `c` clears, `w` saves, and `Enter` copies.
 
-If a tunnel's `[Interface]` has a `DNS =` line, `wg-quick` calls `resolvconf` to
-apply it. A native `resolvconf` provider works directly. When `resolvconf`
-points to `resolvectl`, `systemd-resolved` must also be active.
+## 7. Backup manager
 
-On minimal Debian (and bare Arch/Alpine/Void) there may be no `resolvconf`
-binary, producing:
+Press `B` from either tab. `n` creates a ZIP of all tunnels; `Enter`/`r` restores,
+`d` deletes, and both destructive actions ask for confirmation. `x` copies the
+selected archive to your home directory; `Esc` closes the manager.
 
-```
-[#] resolvconf -a wg0 -m 0 -x
-/usr/bin/wg-quick: line 32: resolvconf: command not found
-```
+Archives live in `$XDG_DATA_HOME/wireguard/backups` or
+`~/.local/share/wireguard/backups`, shared with the desktop client. They contain
+private keys and are stored as `0600` files. Exported backup copies also use
+`0600`. The helper's separate per-file backups live in `/etc/wireguard/.backup/`.
 
-`wg-tui` (or `wireguard-tui`) rewrites this into a friendly message telling you to install a provider.
-For Debian/Arch-style systems, fix it once:
+Restore validates the entire archive before starting any write: only valid
+root-level `.conf` names, no duplicates or hooks, valid config content, at most
+1 MiB per config, 16 MiB total and 1024 configs. Other file types are skipped.
+It then saves sequentially, overwriting same-named tunnels with helper backups.
+An operational failure during saving can leave a partial restore; it is not a
+transaction or a live-interface update. Review and reconnect affected tunnels.
 
-```sh
-sudo apt install openresolv        # Debian/Arch/etc.
-# or, if you have no sudo (Debian-minimal):
-su root -c 'apt install openresolv'
-```
+## 8. Temporary kill switch
 
-On RHEL/Rocky/Alma/CentOS Stream, install the compatibility shim and activate
-its backing service:
+On an active tunnel, press `K`. The helper sets a runtime fwmark when needed,
+then prefers nftables over iptables/ip6tables. It places reject rules before
+existing allow rules, with exceptions above the reject for loopback, the tunnel,
+its mark, and established SSH return traffic when `SSH_CONNECTION` is available
+to the helper. IPv6 protection is checked; the iptables fallback refuses when
+the host has non-loopback IPv6 and lacks `ip6tables`.
 
-```sh
-sudo dnf install systemd-resolved
-sudo systemctl enable --now systemd-resolved
-```
+This changes host output policy and can disrupt remote access or interact with
+another firewall manager. It does not configure a server's forwarding/NAT.
+Exact tunnel-name comments keep `wg0` and `wg01` separate. After upgrading to
+1.9.1, toggle an existing switch off/on to replace older rules.
 
-`wg-tui doctor` (or `wireguard-tui doctor`) checks the command and backing
-service separately and prints the manual command. `wg-tui setup` offers to
-install or activate the provider after confirmation. The source installer
-installs missing packages but never enables `systemd-resolved` silently.
+App deactivation, deletion and rename attempt cleanup. App exit alone does not
+remove rules. External `wg-quick`/service changes can leave stale rules, and a
+firewall reload can remove them. There is no daemon or persistence service;
+reboot normally clears runtime rules unless an external firewall restores them.
+Use a separate access path when testing on a remote host.
 
-### "<user> is not in the sudoers file"
+## 9. Updates and removal
 
-This means your login user can't use `sudo`. Re-run the installer - on a box
-without usable sudo it re-runs itself as root with a single ROOT-password prompt,
-installs `sudo` if missing, and writes a passwordless drop-in for your user:
+A background startup request checks the latest GitHub release. When an update
+is detected, `u` suspends the TUI, verifies and installs the release, then asks
+you to restart. It does not force a check when no update was detected. Network
+failures are silent. Verification needs `curl`, `tar`, `sha256sum`, and
+`minisign`; a best-effort minisign install is attempted if missing, but an
+unverifiable update is refused. The installer may ask for privilege.
 
-```sh
-./install.sh
-```
+Disable automatic checking with `WG_NO_UPDATE_CHECK=1` or the
+`~/.config/wireguard-tui/no-update` marker (respecting `XDG_CONFIG_HOME`).
+For distro packages, prefer the package manager: in-app updates install to the
+source installer's `/usr/local` layout and default sudoers mode, with
+`--no-desktop`, rather than updating a package database.
 
-Tip: you can run `su -` first and then `./install.sh` to be prompted once rather
-than per step.
-
-### Helper authorization was skipped / day-to-day use prompts for a password
-
-If the installer reports that the sudoers drop-in was skipped ("sudoers
-validation failed"), re-run it asking for a polkit rule instead:
-
-```sh
-./install.sh --polkit
-```
-
-(`--polkit` is an installer flag, not a `wg-tui` one.)
-
-### "spawn failed: No such file or directory" (or any escalation error)
-
-This cryptic message means the app could not gain root: there is no passwordless
-`sudo` for the helper and no `pkexec` to fall back to. Two fixes:
-
-- Re-run the installer to set up a working privilege path:
-
-  ```sh
-  ./install.sh
-  ```
-
-- Or run `wg-tui` as root, in which case it talks to the helper directly:
-
-  ```sh
-  sudo wg-tui
-  ```
-
-### Check everything at once
-
-```sh
-wg-tui doctor      # tools, helper, authorization, /etc/wireguard, DNS, systemd
-wg-tui setup       # guided, confirmation-based fix for anything missing
-```
-
-For per-distro specifics (what to install, what survives a reboot, the firewall
-and IP-forwarding questions for servers), see **[docs/DISTROS.md](DISTROS.md)**.
-
----
-
-## 12. 🗑️ Uninstall
-
-Remove the binary, helper, optional desktop files, and the authorization rule:
+To remove a source/prebuilt installation, run its installer with the same
+`PREFIX` used originally:
 
 ```sh
 ./install.sh uninstall
 ```
 
-Your tunnel `.conf` files in `/etc/wireguard` are your data and are left in place;
-remove them yourself if you no longer want them.
+For a distro package, use that distro's package manager. Configs and user
+backups are left in place. For build/debug instructions see
+[CONTRIBUTING.md](../CONTRIBUTING.md); for privilege limits see
+[SECURITY.md](../SECURITY.md).

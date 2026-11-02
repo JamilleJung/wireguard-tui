@@ -1,123 +1,126 @@
 # WireGuard, explained
 
-A friendly guide to what WireGuard is, what every field means, and how to drive
-wg-tui. You don't need to be a network engineer — read the first two sections and
-you can set up a tunnel. (Press `?` for the key map; this is the *concepts*.)
+A guide to WireGuard concepts and the wg-tui keyboard workflow. Press `?` for
+the key map. The source documentation is updated independently of published
+binaries, which embed the guide as it existed when they were built.
 
----
+## 1. Interfaces and peers
 
-## 1. The 60-second mental model
+A WireGuard interface is a virtual network interface on this machine. It has a
+private key and may have an address, listen port, DNS settings, and several
+peers. Each peer is another WireGuard participant, identified by its public key.
+A client often has one peer (a VPN gateway); a server can have many.
 
-A **WireGuard tunnel** is an encrypted point-to-point link between two machines.
-Think of it as a private cable plugged between you and a server: anything that
-goes through the cable is encrypted and looks, to the rest of your network, like
-it's coming from the machine at the other end.
+When you activate a config with `Enter` or `a`, wg-quick creates the interface
+and applies routing and other settings. "Active" means that interface is up.
+A successful handshake and traffic counters are better evidence that a peer
+is reachable. An idle peer need not have a very recent handshake.
 
-Each tunnel has exactly two halves:
+The app manages plain files in `/etc/wireguard`; it does not register a peer on
+your server or provider. Both ends still need compatible keys and routing.
 
-- **The Interface** = *you* (this machine): a private key, an address inside the
-  tunnel, and optionally a DNS server to use while connected.
-- **The Peer** = *the other machine* (usually your VPN server): a public key, a
-  public address (the **endpoint**) to reach it at, and a list of which traffic
-  should go through it (**AllowedIPs**).
+## 2. Keys and secrets
 
-When you **activate** a tunnel (`Enter` / `a`), the two halves do a quick
-**handshake** (a cryptographic hello); once it succeeds, traffic flows. If the
-handshake never completes, you're "active" but not actually connected — press
-**`D`** (Diagnose) to find out why.
+Each interface has a private/public key pair. Keep the private key secret;
+share the public key with the other endpoint. The other endpoint must have
+your public key in its peer list, and you must have its public key in yours.
+The optional preshared key is an extra shared secret and must match at both
+ends. `g` generates a keypair and PSK; importing a provider config usually
+supplies keys that are already registered.
 
----
+A QR code or exported config includes the private key. Screenshots, generated
+key popups, running config, ZIP backups, and clipboard history can expose
+secrets. Copy only what you intend to share.
 
-## 2. The keys (this is the whole security model)
+## 3. Config fields
 
-WireGuard uses **public-key cryptography**. Every machine has a **key pair**:
+Interface fields:
 
-- **Private key** — your secret. It *never* leaves this machine; you never share
-  it. Generate one with `g`.
-- **Public key** — derived from the private key. You *do* share this; it's how the
-  server identifies you.
+- Name: the Linux interface/config name, such as `home`; up to 15 ASCII
+  characters, letters/digits first, then letters/digits/`_`/`-`/`.`. No `..`
+  or `.conf` suffix.
+- PrivateKey: this interface's secret key.
+- Address: this machine's tunnel IP/CIDR, such as `10.100.0.17/24`; use the
+  address assigned by the server, not an arbitrary LAN address.
+- DNS: optional servers or search domains for wg-quick to apply. A working
+  `resolvconf` command is required; `doctor` checks integration.
+- ListenPort: optional UDP port (automatic if omitted/zero).
+- MTU: optional interface packet size; usually leave it automatic.
 
-The rule is symmetric: **the server must know your public key, and you must know
-the server's public key.** If the server doesn't have your public key in its peer
-list, it silently ignores your handshakes (a very common cause of "won't
-connect").
+Peer fields:
 
-- **Preshared key (PSK)** — *optional* extra symmetric secret on top, for
-  post-quantum belt-and-suspenders. If your config has one, the server must have
-  the *same* PSK or the handshake fails.
+- PublicKey: the remote peer's public key.
+- PresharedKey: optional extra secret, identical at both ends.
+- Endpoint: a reachable `host:port`, or `[IPv6-address]:port`. A peer can learn
+  a roaming endpoint after authenticated traffic.
+- AllowedIPs: destination prefixes sent to this peer, and source prefixes
+  accepted from it. `0.0.0.0/0` covers all IPv4; `::/0` covers all IPv6. A
+  specific prefix such as `10.100.0.0/24` is a split tunnel. IPv4-only full
+  routing does not automatically route IPv6 through the VPN.
+- PersistentKeepalive: optional interval in seconds (`25` is a common NAT
+  traversal setting); `off` disables it.
 
-> You usually don't create keys by hand: download a config from your provider /
-> server (e.g. wg-easy) and import it (`i`) — the keys are already filled in and
-> already registered on the server.
+Inline `#` comments and repeated Address/DNS/AllowedIPs lines are supported.
+The helper refuses to save root script hooks such as PostUp. An administrator
+who needs those must manage the file directly.
 
----
+## 4. Driving wg-tui
 
-## 3. Every field, in plain words
+All keys work without a mode switch. "Advanced" in `?` groups operations; `m`
+does not toggle anything.
 
-**Interface (you):**
+- `i`: import a config or QR image. `n`: generate a preset and edit raw text.
+- Up/Down: select a tunnel. `Enter`/`a`: activate/deactivate.
+- `h`/`l`: choose a detail field. `y`: copy it.
+- `e`: edit in $VISUAL, then $EDITOR, then nano. `+`: add a peer in the editor.
+- `g`: generate keys. `c`: running config. `p`: save live state.
+- `s`: systemd start-on-boot. `Q`: QR. `R`: rename. `d`: delete. `x`: export all.
+- `K`: temporary host-output kill switch. `D`: connection diagnostics.
+- `Tab`: Log. `B`: Backup manager. `w`: changelog. `A`: About. `q`/Esc: quit.
 
-- **Name** — a label for the tunnel (e.g. `home`). Becomes the `wg0`-style name.
-- **PrivateKey** — your secret (see above).
-- **Address** — your IP *inside* the tunnel, e.g. `10.100.0.17/24` (assigned by
-  the server; not your normal LAN IP).
-- **DNS** — DNS server(s) to use while connected, e.g. `1.1.1.1`. Optional;
-  needs a working resolvconf provider (`wg-tui doctor` checks it and
-  `wg-tui setup` can repair it).
-- **ListenPort / MTU** — advanced, usually blank (auto). MTU sometimes needs
-  lowering on flaky links.
+On the Log tab, `y`/Enter copies the current line or selection, `v` starts a
+selection, `Y` copies the filtered log, `/` filters, `t` selects this tunnel,
+`f` follows, `c` clears the view, `r` reloads, and `w` saves the full fetched
+log to a file, regardless of view filters. `g`/Home
+and `G`/End move to top/bottom; `h`/`l` scroll horizontally. Esc first cancels a
+visual selection. In Backup, `n` creates, Enter/`r` restores, `d` deletes, and
+`x` exports the selected archive. Restore/delete ask for confirmation.
 
-**Peer (the server):**
+Copy tries native clipboard tools before OSC 52. Across SSH, the local terminal
+must allow OSC 52 when that fallback is used; a successful remote clipboard
+helper can target the remote display instead.
 
-- **PublicKey** — the server's public key.
-- **PresharedKey** — optional shared secret (see above).
-- **Endpoint** — where to reach the server: `host:port`, e.g.
-  `82.26.104.2:51820`. The only address that goes over your *normal* internet.
-- **AllowedIPs** — which destinations route *into* the tunnel:
-  - `0.0.0.0/0` = **full tunnel** (all IPv4 traffic via the VPN).
-  - `10.100.0.0/24` = **split tunnel** (only that subnet; the rest stays direct).
-- **PersistentKeepalive** — a tiny packet every N seconds (commonly `25`) to hold
-  the connection open through NAT/firewalls. Recommended behind a home router.
+Editing an active tunnel attempts WireGuard-level live sync. Address, DNS,
+MTU, and routing changes still need reconnecting. Rename stops an active
+interface without reactivating it; restoring a backup updates files without
+syncing running interfaces. Backup preflight is bounded and complete before
+writes, but later operational failures can leave a partial restore.
 
----
+## 5. When a tunnel is active but traffic stalls
 
-## 4. Driving wg-tui (press `?` for the full key map)
+Press `D` to check clock synchronization, interface state, handshake age,
+endpoint ping, and DNS lookup. These are diagnostic clues, not a proof of
+end-to-end service health. ICMP ping can be blocked while WireGuard UDP works.
+Check both public keys, matching PSK, endpoint/port, AllowedIPs, firewall and
+routing, and system time. Unsynchronized time can affect handshakes; a missing
+handshake alone does not establish its cause.
 
-**Get a tunnel in:**
+Avoid having two tools manage the same interface at once. The kill switch is
+temporary firewall state, not a daemon or a server NAT setup. App exit does not
+clear it; app deactivation/delete/rename attempts cleanup. Recheck after
+external service or firewall changes. Existing switches need off/on after an
+upgrade to install new rule logic.
 
-- `i` — **import** a `.conf` (or a QR image) via the file browser. The usual way.
-- `n` — **new** tunnel from a preset (Interface only / Full / Split); generates a
-  key pair, then opens `$EDITOR` to fill in the peer's public key + endpoint.
+## 6. Prerequisites and updates
 
-**Day to day:**
+`wg-tui doctor` is read-only; `setup` offers confirmed tools/resolver repairs.
+Start-on-boot needs systemd, logs need journald, and DNS lines need resolvconf
+integration. The app does not bundle WireGuard tools or kernel modules.
 
-- Up/Down to select; the detail pane shows live handshake / transfer / speed.
-- `Enter` / `a` — **activate / deactivate** (`wg-quick` up/down).
-- `h`/`l` pick a detail field, `y` copies it.
-- `s` — **start on boot** (systemd). `Q` — show the config as a **QR code**.
-
-**Advanced (all keys work, no mode — see `?`):** `e` edit raw config, `g`
-generate keys, `c` show running config, `p` save live state, `K` kill switch, `+`
-add a peer, `R` rename, `x` export all.
-
-**Other views:** `Tab` → **Log** (filter, copy, save). `B` → **Backup** manager.
-`D` → **Diagnose**. `u` → check for / apply an **update**.
-
-**When something's wrong:** press **`D`**. It checks, most-common-cause first: your
-**system clock** (a wrong clock silently breaks handshakes — really), tunnel up,
-handshake completing, endpoint reachable, DNS. It tells you which step failed.
-
----
-
-## 5. Two gotchas worth knowing
-
-- **"Active but nothing loads."** The interface is up but the handshake isn't
-  completing, so no real traffic flows. Causes, most common first: the system
-  clock is off; the server doesn't have your public key; the endpoint is
-  unreachable. `D` pinpoints it.
-- **Don't manage the same tunnel from two places** (e.g. NetworkManager + wg-tui).
-  They'll fight. Pick one.
-
----
-
-wg-tui never phones home, never lets your keys leave the machine, and only asks
-for privilege to run `wg` / `wg-quick`. Your configs live in `/etc/wireguard`.
+At startup, the app may contact GitHub to check for a newer release. `u`
+installs only a detected update, verifies it against the compiled-in signing
+key and exact checksum, and asks you to restart. It does not force a fresh
+check. Disable checking with WG_NO_UPDATE_CHECK=1 or a no-update file under
+$XDG_CONFIG_HOME/wireguard-tui (default ~/.config/wireguard-tui). Distro-package
+users should prefer their package manager; the in-app installer uses the source
+installation layout.

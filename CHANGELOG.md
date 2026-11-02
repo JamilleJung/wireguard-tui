@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Documentation
+- Refresh all current guides for 1.9.1: keyboard controls, installer defaults,
+  package authorization, signed updates and packed-binary audits, backup limits,
+  DNS/service setup, and security boundaries. Published binaries retain their
+  build-time embedded guide and changelog until a future release.
+
 ## [1.9.1] - 2026-11-02
 
 ### Fixed

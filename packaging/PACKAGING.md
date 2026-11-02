@@ -1,60 +1,121 @@
-# 📦 Packaging wireguard-tui
+# Packaging wireguard-tui
 
-Distro packages so users don't have to run `install.sh` by hand. Each installs:
+The current recipes target **1.9.1**. They build/install `wg-tui` plus the Rust
+`wg-helper`. They do not add the `wireguard-tui` alias created by `install.sh`.
+Recipe availability is not a claim that a package is already published in an
+external repository.
 
-- the `wg-tui` binary → `/usr/bin`
-- the privileged helper → `/usr/lib/wireguard-tui/wg-helper`
-- the **polkit** rule → `/usr/share/polkit-1/rules.d/49-wireguard-tui.rules`
+## Installed files and authorization
 
-`wireguard-tools` is the only runtime dependency; `polkit` provides the
-privilege; `systemd` is *optional* (only for start-on-boot). The app itself is
-pure Rust with **no GUI/C library dependencies**.
+| Install path | Source/prebuilt installer | Debian `.deb` | AUR/RPM/Alpine/Void recipes |
+|---|---|---|---|
+| App | `/usr/local/bin/wg-tui` | `/usr/bin/wg-tui` | `/usr/bin/wg-tui` |
+| Helper | `/usr/local/lib/wireguard-tui/wg-helper` | `/usr/lib/wireguard-tui/wg-helper` | `/usr/lib/wireguard-tui/wg-helper` |
+| Auth | Per-user sudoers by default, optional polkit | `/etc/polkit-1/rules.d/49-wireguard-tui.rules` | `/usr/share/polkit-1/rules.d/49-wireguard-tui.rules` |
+| Launcher/icon | Included unless `--no-desktop` | Included | Not installed by current recipes |
 
-The desktop launcher/icon files remain in `packaging/` for downstreams that want
-them, but the first-party packages keep the TUI install minimal by default.
-
-## Arch (AUR) - `aur/PKGBUILD`
+The polkit rule recognizes both standard helper paths and grants passwordless
+access only to an active **local** session in the `wireguard` group. Current
+package recipes and Cargo metadata have **no post-install group or membership
+script**. Packaging a rule is not enough to grant passwordless use. An
+administrator must choose trusted users and arrange group setup, for example
+on systems with shadow utilities:
 
 ```sh
-cd packaging/aur && makepkg -si
+sudo groupadd -f wireguard
+sudo usermod -aG wireguard "$USER"
+# Log out and back in; then check: id -nG
 ```
 
-To publish: `makepkg -g` for real `sha256sums`, then push `PKGBUILD` + `.SRCINFO`
-to `ssh://aur@aur.archlinux.org/wireguard-tui.git`. Bump `pkgver` per release.
-(The PKGBUILD runs `cargo test` in `check()`.)
+Use your distro's equivalent utilities when those commands are unavailable.
+Membership gives access to managed private keys and networking operations.
+The active-local rule does not cover SSH sessions; document a scoped sudoers
+alternative or the required admin authentication path for headless use. The
+source/prebuilt installer's `--polkit` path attempts group setup automatically.
 
-## Fedora / RHEL / Rocky (COPR) - `rpm/wireguard-tui.spec`
+## Runtime and build requirements
 
-Build on **COPR** (SCM build against the repo + tagged `Source0` tarball), or
-locally with `rpmbuild -ba`. Runs `cargo test` in `%check`. Bump `Version` per
-release. The TUI needs no GUI libraries — only `cargo`, `rust`, `gcc`, and
-`pkgconf-pkg-config` at build time, plus `wireguard-tools` and `polkit` at
-runtime. `ExclusiveArch` covers `x86_64 aarch64` (static binaries ship for
-both). `systemd-resolved` is a soft dependency for tunnels with `DNS =`.
-RHEL-family systems provide `resolvconf` as a `resolvectl` compatibility shim;
-when that shim is installed but inactive, enable it explicitly with
-`sudo systemctl enable --now systemd-resolved` or run `wg-tui setup`.
+`wireguard-tools` supplies `wg`/`wg-quick`; the kernel needs usable WireGuard
+support. Packages use polkit/pkexec authorization; systemd is optional for
+start-on-boot, journald for log entries, and resolvconf integration for `DNS =`.
+Native clipboard helpers are optional (OSC 52 fallback). The updater requires
+curl, tar, sha256sum and minisign; it may attempt to install minisign if absent.
+Do not claim the current recipes declare every optional integration dependency.
 
-## Debian / Ubuntu (.deb)
+Building needs a suitable Rust 2024 toolchain and C linker, without graphical
+libraries. Recipes use the checked-in lockfile; inspect it and run the
+[contribution checks](../CONTRIBUTING.md) when updating versions.
 
-Produced by the release workflow via `cargo deb` (`[package.metadata.deb]`).
+## Debian / Ubuntu
 
-## Alpine - `apk/APKBUILD`
+The signed release workflow builds one **amd64** package with pinned
+`cargo-deb` (3.8.0); assets are defined in
+[`Cargo.toml`](../Cargo.toml). It includes the terminal launcher/icon, helper,
+README, and polkit rule. Runtime dependency metadata includes `wireguard-tools`
+and a pkexec/polkit alternative; clipboard helper packages are recommended.
+It does not create the `wireguard` group or add users.
 
-Template for Alpine maintainers. It builds the single TUI binary plus the Rust
-`wg-helper`, installs the polkit rule, and keeps runtime dependencies to
-`wireguard-tools` and `polkit`. Replace `sha512sums="SKIP"` with the real
-release tarball checksum before submitting to an Alpine repository.
+For a package built from source:
 
-## Void Linux - `void/template`
+```sh
+cargo build --release --locked
+cargo install cargo-deb --version =3.8.0 --locked
+cargo deb --no-build --no-strip
+```
 
-Template for Void maintainers. It keeps the package terminal-only: `wg-tui`,
-`wg-helper`, the polkit rule, and no GUI libraries. Replace
-`checksum=@CHECKSUM@` with the real release tarball checksum before submitting.
+Release packages use an auditable build and UPX compression before packaging;
+see [RELEASES.md](../docs/RELEASES.md) for verification and packed-binary audit
+instructions. Install a verified release with the package manager, for example
+`sudo apt install ./wireguard-tui_1.9.1-1_amd64.deb`.
 
-## Flatpak
+## Arch / AUR
 
-Not provided: a terminal tool that manages system WireGuard as root (via
-sudoers/polkit, writing `/etc/wireguard`) does not fit the Flatpak sandbox. Use
-the native install, the AUR package, the RPM/COPR build, Alpine/Void templates,
-or the `.deb`.
+[`aur/PKGBUILD`](aur/PKGBUILD) targets x86_64 and aarch64. It fetches the tagged
+source, fetches locked dependencies, builds/tests with `--frozen`, and installs
+the helper/rule. Replace `sha256sums=('SKIP')` using `makepkg -g` and generate
+`.SRCINFO` before publishing. Bump `pkgver`/`pkgrel` deliberately and keep the
+checksum aligned with the tagged source. Build with `makepkg -si` from the
+recipe directory as an unprivileged packager.
+
+## Fedora / RHEL-family RPM
+
+[`rpm/wireguard-tui.spec`](rpm/wireguard-tui.spec) covers x86_64 and aarch64,
+uses locked release builds/tests, and installs the standard `/usr` helper and
+polkit rule. It declares Rust/cargo/gcc/pkgconf build requirements and
+WireGuard/polkit runtime requirements. `systemd-resolved` is a recommendation.
+An inactive resolvectl compatibility shim still needs administrator approval to
+enable its backing service (`wg-tui setup` can offer that repair).
+
+Build with the distro's RPM tooling/COPR after preparing the tagged `Source0`
+archive and build environment. The recipe is supplied here; independently
+verify any external COPR repository before enabling it. Keep `Version`, the
+changelog and tag synchronized. Follow the distro's SELinux labeling/policy
+requirements for the installed helper.
+
+## Alpine and Void
+
+[`apk/APKBUILD`](apk/APKBUILD) and [`void/template`](void/template) are maintainer
+templates for x86_64/aarch64. They install the terminal app/helper and polkit
+rule without a graphical stack. Replace Alpine's `sha512sums="SKIP"` and Void's
+`checksum=@CHECKSUM@` with verified source checksums and supply real maintainer
+metadata before submission. Review distro Rust/dependency availability.
+
+The app's start-on-boot toggle is systemd-only; on OpenRC/runit provide an
+appropriate distro service if boot activation is desired. Do not promise a
+journal-backed Log view without journald.
+
+## Tarballs, updates and other formats
+
+GitHub releases provide four static musl tarballs: x86_64, i686, aarch64, armv7.
+Each has both executable binaries, installer, `packaging/` assets, README and
+license. The installer detects this bundle, stages the binaries, skips build
+dependencies, and still installs runtime prerequisites/auth. It defaults to
+`/usr/local` plus sudoers and a launcher; `--no-desktop` skips the launcher.
+A direct root login requires `--allow-root` after verification.
+
+Prefer package-manager upgrades for a distro-managed installation. The in-app
+updater invokes that source/prebuilt installer with `--no-desktop`; it does
+not update a package database and can create a parallel `/usr/local` install.
+There is no supplied Flatpak because system helper/network administration does
+not fit this project's current sandbox model. See [SECURITY.md](../SECURITY.md)
+for the privilege boundary and [RELEASES.md](../docs/RELEASES.md) for signatures.
