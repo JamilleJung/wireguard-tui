@@ -1,6 +1,6 @@
 # Releases and verification
 
-Current release: [1.9.2](https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.9.2).
+Current release: [1.9.3](https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.9.3).
 Use the [release list](https://github.com/JamilleJung/wireguard-tui/releases) or
 [latest release](https://github.com/JamilleJung/wireguard-tui/releases/latest)
 for downloads. The [changelog](../CHANGELOG.md) is the canonical history.
@@ -11,11 +11,11 @@ number; terminal and desktop controls/features are not identical.
 
 | Artifact | Build |
 |---|---|
-| `wireguard-tui-1.9.2-x86_64-linux.tar.gz` | Static musl, 64-bit Intel/AMD |
-| `wireguard-tui-1.9.2-i686-linux.tar.gz` | Static musl, 32-bit Intel/AMD |
-| `wireguard-tui-1.9.2-aarch64-linux.tar.gz` | Static musl, 64-bit ARM |
-| `wireguard-tui-1.9.2-armv7-linux.tar.gz` | Static musl, 32-bit ARMv7 |
-| `wireguard-tui_1.9.2-1_amd64.deb` | Debian/Ubuntu amd64 package |
+| `wireguard-tui-1.9.3-x86_64-linux.tar.gz` | Static musl, 64-bit Intel/AMD |
+| `wireguard-tui-1.9.3-i686-linux.tar.gz` | Static musl, 32-bit Intel/AMD |
+| `wireguard-tui-1.9.3-aarch64-linux.tar.gz` | Static musl, 64-bit ARM |
+| `wireguard-tui-1.9.3-armv7-linux.tar.gz` | Static musl, 32-bit ARMv7 |
+| `wireguard-tui_1.9.3-1_amd64.deb` | Debian/Ubuntu amd64 package |
 | `SHA256SUMS`, `SHA256SUMS.minisig`, `minisign.pub` | Checksum manifest, signature, verification key |
 
 A release tarball has `wg-tui`, `wg-helper`, `install.sh`, README/license, and
@@ -44,8 +44,8 @@ Checksums alone cannot authenticate a release.
 For a verified tarball, extract it and run its installer as your normal user:
 
 ```sh
-tar -xzf wireguard-tui-1.9.2-x86_64-linux.tar.gz
-cd wireguard-tui-1.9.2-x86_64-linux
+tar -xzf wireguard-tui-1.9.3-x86_64-linux.tar.gz
+cd wireguard-tui-1.9.3-x86_64-linux
 ./install.sh
 ```
 
@@ -57,7 +57,7 @@ active-local/group-based authorization. From a direct root login use the
 explicit `--allow-root` override after verification.
 
 For the verified package, use
-`sudo apt install ./wireguard-tui_1.9.2-1_amd64.deb`. The `.deb` ships a polkit
+`sudo apt install ./wireguard-tui_1.9.3-1_amd64.deb`. The `.deb` ships a polkit
 rule and desktop assets but no group-membership setup script. Follow the
 [packaging guide](../packaging/PACKAGING.md), especially for SSH access.
 The source/prebuilt installer adds the `wireguard-tui` alias; packages may
@@ -145,7 +145,7 @@ source checkout is another option for inspection. Updating source docs does
 not retroactively update the guide embedded into an already published binary;
 that requires a future build.
 
-## 1.9.2 behavior and upgrade checks
+## 1.9.3 behavior and upgrade checks
 
 Release helper discovery uses this project's own standard `/usr/local/lib/`
 and `/usr/lib/` paths, or an adjacent **trusted** executable. The executable must
@@ -181,6 +181,12 @@ validation or group enrollment reports failure and keeps prior authorization.
 `--polkit` requires pkexec up front; it does not install a rule and then claim
 success without the escalation tool. Packages still do not enroll users.
 
+Repeating `--polkit` checks the existing `wireguard` group and account
+membership before invoking group-management tools. An already configured
+Alpine/BusyBox system can reinstall without optional Shadow `groupadd`/`usermod`.
+Missing groups or membership must still be created and verified before the
+previous authorization is removed.
+
 Verified updates retain ownership of their private download directory through
 installation and clean it up on download, staging or installation failure and
 normal completion. Before privilege escalation, the whole required bundle is
@@ -196,6 +202,10 @@ using an archive created by another tool. Tests cover concrete failure paths;
 passing them does not prove compatibility with every host firewall or distro.
 
 ## Recent release highlights
+
+- **1.9.3 (2026-11-02):** fix repeat `--polkit` installation on Alpine/BusyBox
+  by reusing existing group/membership state without optional Shadow utilities;
+  missing setup must still succeed before previous authorization is removed.
 
 - **1.9.2 (2026-11-02):** deep-audit fixes for shared validation, trusted helpers,
   bounded IPC, complete atomic exports, bounded archive/QR reads, helper files,

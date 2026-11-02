@@ -2,7 +2,7 @@
 
 # wireguard-tui - `wg-tui`
 
-A native Linux terminal UI for plain WireGuard tunnels. Current release: **1.9.2**.
+A native Linux terminal UI for plain WireGuard tunnels. Current release: **1.9.3**.
 
 [![CI](https://github.com/JamilleJung/wireguard-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/JamilleJung/wireguard-tui/actions/workflows/ci.yml)
 [![Releases](https://img.shields.io/badge/Releases-latest-2ea44f)](https://github.com/JamilleJung/wireguard-tui/releases/latest)
@@ -80,16 +80,16 @@ helper override; see CONTRIBUTING.md.
 
 ### Signed prebuilt releases
 
-[Release 1.9.2](https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.9.2)
+[Release 1.9.3](https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.9.3)
 provides:
 
 | Artifact | Host |
 |---|---|
-| `wireguard-tui-1.9.2-x86_64-linux.tar.gz` | 64-bit Intel/AMD |
-| `wireguard-tui-1.9.2-i686-linux.tar.gz` | 32-bit Intel/AMD |
-| `wireguard-tui-1.9.2-aarch64-linux.tar.gz` | 64-bit ARM |
-| `wireguard-tui-1.9.2-armv7-linux.tar.gz` | 32-bit ARMv7 |
-| `wireguard-tui_1.9.2-1_amd64.deb` | Debian/Ubuntu amd64 |
+| `wireguard-tui-1.9.3-x86_64-linux.tar.gz` | 64-bit Intel/AMD |
+| `wireguard-tui-1.9.3-i686-linux.tar.gz` | 32-bit Intel/AMD |
+| `wireguard-tui-1.9.3-aarch64-linux.tar.gz` | 64-bit ARM |
+| `wireguard-tui-1.9.3-armv7-linux.tar.gz` | 32-bit ARMv7 |
+| `wireguard-tui_1.9.3-1_amd64.deb` | Debian/Ubuntu amd64 |
 
 The tarballs contain static musl application/helper binaries, `install.sh`,
 installer assets under `packaging/`, README, and license. Choose the archive
@@ -100,8 +100,8 @@ matching `uname -m` (`armv7l` uses armv7). Verify it **before** extraction:
 minisign -Vm SHA256SUMS -P RWTyrstfFCLYkpMwbcyBRl+aGGcJikl35GY1esJDO6HTEJFIMvUC8f1Q
 sha256sum -c SHA256SUMS --ignore-missing --strict
 # Require an OK line for the exact artifact you chose.
-tar -xzf wireguard-tui-1.9.2-x86_64-linux.tar.gz
-cd wireguard-tui-1.9.2-x86_64-linux
+tar -xzf wireguard-tui-1.9.3-x86_64-linux.tar.gz
+cd wireguard-tui-1.9.3-x86_64-linux
 ./install.sh
 ```
 
@@ -112,7 +112,7 @@ login, use `./install.sh --allow-root` after verification. The attached
 verified only against an untrusted key downloaded with the artifact is not a
 trust check. Missing or invalid signing files are a reason to stop installation.
 
-For a verified `.deb`, install with `sudo apt install ./wireguard-tui_1.9.2-1_amd64.deb`.
+For a verified `.deb`, install with `sudo apt install ./wireguard-tui_1.9.3-1_amd64.deb`.
 It includes a launcher and polkit rule but no script to create the `wireguard`
 group or add users. See [authorization](#authorization) and the
 [packaging guide](packaging/PACKAGING.md). Distro recipes are supplied for
@@ -336,6 +336,12 @@ validates the selected grant before removing the previous grant. Failed sudoers
 validation or group enrollment reports failure and keeps prior authorization.
 `--polkit` requires pkexec up front; it does not install a rule and then claim
 success without the escalation tool. Packages still do not enroll users.
+
+Repeating `--polkit` checks the existing `wireguard` group and account
+membership before invoking group-management tools. An already configured
+Alpine/BusyBox system can reinstall without optional Shadow `groupadd`/`usermod`.
+Missing groups or membership must still be created and verified before the
+previous authorization is removed.
 
 Verified updates retain ownership of their private download directory through
 installation and clean it up on download, staging or installation failure and

@@ -1,6 +1,6 @@
 # Packaging wireguard-tui
 
-The current recipes target **1.9.2**. They build/install `wg-tui` plus the Rust
+The current recipes target **1.9.3**. They build/install `wg-tui` plus the Rust
 `wg-helper`. They do not add the `wireguard-tui` alias created by `install.sh`.
 Recipe availability is not a claim that a package is already published in an
 external repository.
@@ -66,7 +66,7 @@ cargo deb --no-build --no-strip
 Release packages use an auditable build and UPX compression before packaging;
 see [RELEASES.md](../docs/RELEASES.md) for verification and packed-binary audit
 instructions. Install a verified release with the package manager, for example
-`sudo apt install ./wireguard-tui_1.9.2-1_amd64.deb`.
+`sudo apt install ./wireguard-tui_1.9.3-1_amd64.deb`.
 
 ## Arch / AUR
 
@@ -120,7 +120,7 @@ There is no supplied Flatpak because system helper/network administration does
 not fit this project's current sandbox model. See [SECURITY.md](../SECURITY.md)
 for the privilege boundary and [RELEASES.md](../docs/RELEASES.md) for signatures.
 
-## 1.9.2 compatibility and validation
+## 1.9.3 compatibility and validation
 
 Before privileged writes or helper grants, `PREFIX` must be an absolute ASCII
 path containing only letters, digits, `/`, `_`, `.` and `-`, with no empty,
@@ -141,6 +141,12 @@ validates the selected grant before removing the previous grant. Failed sudoers
 validation or group enrollment reports failure and keeps prior authorization.
 `--polkit` requires pkexec up front; it does not install a rule and then claim
 success without the escalation tool. Packages still do not enroll users.
+
+Repeating `--polkit` checks the existing `wireguard` group and account
+membership before invoking group-management tools. An already configured
+Alpine/BusyBox system can reinstall without optional Shadow `groupadd`/`usermod`.
+Missing groups or membership must still be created and verified before the
+previous authorization is removed.
 
 Release helper discovery uses this project's own standard `/usr/local/lib/`
 and `/usr/lib/` paths, or an adjacent **trusted** executable. The executable must

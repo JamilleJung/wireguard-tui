@@ -1,6 +1,6 @@
 # Linux distro, DNS, and service guide
 
-This guide describes the 1.9.2 installer and runtime requirements. Package names
+This guide describes the 1.9.3 installer and runtime requirements. Package names
 and system policy can vary by distro release; check the package manager's output
 and `wg-tui doctor` on the actual host.
 
@@ -152,7 +152,7 @@ start-on-boot toggle is unavailable. Without journald, the Log tab explains the
 missing journal source. Avoid managing one interface simultaneously with this
 app, NetworkManager, and an independent service configuration.
 
-## 1.9.2 integration requirements
+## 1.9.3 integration requirements
 
 Before privileged writes or helper grants, `PREFIX` must be an absolute ASCII
 path containing only letters, digits, `/`, `_`, `.` and `-`, with no empty,
@@ -170,6 +170,12 @@ validates the selected grant before removing the previous grant. Failed sudoers
 validation or group enrollment reports failure and keeps prior authorization.
 `--polkit` requires pkexec up front; it does not install a rule and then claim
 success without the escalation tool. Packages still do not enroll users.
+
+Repeating `--polkit` checks the existing `wireguard` group and account
+membership before invoking group-management tools. An already configured
+Alpine/BusyBox system can reinstall without optional Shadow `groupadd`/`usermod`.
+Missing groups or membership must still be created and verified before the
+previous authorization is removed.
 
 Release helper discovery uses this project's own standard `/usr/local/lib/`
 and `/usr/lib/` paths, or an adjacent **trusted** executable. The executable must
