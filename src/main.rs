@@ -11,9 +11,10 @@ mod secrets;
 mod update;
 mod validation;
 
+use std::collections::VecDeque;
 use std::io;
 use std::io::Write as _;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -52,7 +53,9 @@ struct Snapshot {
 }
 
 /// What the foreground is currently doing - a normal view or a modal popup.
+#[derive(Default)]
 enum Mode {
+    #[default]
     Normal,
     Help,
     /// The About box: app name, version, links, license (any key closes it).
@@ -102,6 +105,7 @@ enum Mode {
     },
 }
 
+#[derive(Default)]
 struct App {
     tunnels: Vec<backend::Tunnel>,
     state: ListState,
@@ -145,7 +149,14 @@ struct App {
     /// Short status line for an in-progress/just-finished self-update.
     update_status: Option<String>,
     /// Off-UI-thread mailbox for update check + apply results.
-    update_out: Arc<Mutex<Option<UpdateMsg>>>,
+    update_out: Arc<Mutex<VecDeque<UpdateMsg>>>,
+    /// Avoid overlapping diagnosis workers and their delayed popups.
+    diagnosing: bool,
+    /// A foreground helper mutation is running on a worker.
+    operation_pending: bool,
+    ready_editor: Option<EditorRequest>,
+    selection_generation: u64,
+    pending_selection: Option<(String, u64)>,
 }
 
 /// A message from a background worker thread, drained each UI loop.
@@ -154,43 +165,26 @@ enum UpdateMsg {
     Available(update::UpdateInfo),
     /// A finished connection diagnosis report, to show in a popup.
     Diagnosed(String),
+    ActionComplete(Result<String, String>),
+    Present(Result<Mode, String>),
+    EditorLoaded(Result<EditorRequest, String>),
+    SelectWhenPresent(String, u64),
+}
+
+struct EditorRequest {
+    name: String,
+    original: String,
+    initial: String,
+    new_kind: Option<create::TunnelTemplateKind>,
 }
 
 impl App {
     fn new() -> Self {
-        let mut app = App {
-            tunnels: Vec::new(),
-            state: ListState::default(),
-            detail: None,
-            tab: 0,
-            log: String::new(),
-            log_scroll: 0,
+        let mut app = Self {
             log_follow: true,
-            log_filter: String::new(),
-            log_only_selected: false,
-            log_cursor: 0,
-            log_select_anchor: None,
-            log_hscroll: 0,
-            log_cleared: false,
-            detail_cursor: 0,
-            status: String::new(),
-            status_at: None,
-            mode: Mode::Normal,
-            quit: false,
-            rate_rx: 0,
-            rate_tx: 0,
-            prev_sample: None,
-            poll_in: Arc::new(Mutex::new(PollIn::default())),
-            poll_out: Arc::new(Mutex::new(None)),
-            update: None,
-            update_status: None,
-            update_out: Arc::new(Mutex::new(None)),
+            ..Self::default()
         };
-        app.reload();
-        if !app.tunnels.is_empty() {
-            app.state.select(Some(0));
-            app.load_detail();
-        }
+        // The poller performs the initial list/detail reads after the first draw.
         app.sync_poll_in();
         // Friendly first-run hint if something critical is missing (cheap check,
         // no sudo). Any key dismisses it.
@@ -224,7 +218,15 @@ impl App {
         }
         if let Some(tunnels) = snap.tunnels {
             // Reconcile, preserving the selection by name.
-            let prev = self.selected_name();
+            let mut prev = self.selected_name();
+            if let Some((name, generation)) = &self.pending_selection {
+                if *generation != self.selection_generation {
+                    self.pending_selection = None;
+                } else if tunnels.iter().any(|tunnel| &tunnel.name == name) {
+                    prev = Some(name.clone());
+                    self.pending_selection = None;
+                }
+            }
             self.tunnels = tunnels;
             if self.tunnels.is_empty() {
                 self.state.select(None);
@@ -237,6 +239,17 @@ impl App {
                     .min(self.tunnels.len() - 1);
                 self.state.select(Some(idx));
             }
+            if self
+                .detail
+                .as_ref()
+                .is_some_and(|detail| Some(&detail.name) != self.selected_name().as_ref())
+            {
+                self.detail = None;
+                self.detail_cursor = 0;
+                self.rate_rx = 0;
+                self.rate_tx = 0;
+                self.prev_sample = None;
+            }
         }
         // Only apply detail that still matches the current selection.
         if let Some((name, d)) = snap.detail
@@ -248,6 +261,7 @@ impl App {
         }
         if let Some(log) = snap.log
             && !self.log_cleared
+            && self.log_select_anchor.is_none()
         {
             self.log = log;
         }
@@ -285,38 +299,25 @@ impl App {
             .map(|t| t.name.clone())
     }
 
-    /// Refresh the tunnel list (and keep a sensible selection).
-    fn reload(&mut self) {
-        let prev = self.selected_name();
-        self.tunnels = backend::list_tunnels();
-        if self.tunnels.is_empty() {
-            self.state.select(None);
-            self.detail = None;
-            return;
-        }
-        let idx = prev
-            .and_then(|p| self.tunnels.iter().position(|t| t.name == p))
-            .unwrap_or(0)
-            .min(self.tunnels.len() - 1);
-        self.state.select(Some(idx));
-        self.load_detail();
-    }
-
     fn load_detail(&mut self) {
-        self.detail = self.selected_name().map(|n| backend::get_detail(&n));
-        self.detail_cursor = 0; // reset field focus when the tunnel changes
-        if let Some(d) = &self.detail {
-            let (n, rx, tx) = (d.name.clone(), d.rx_bytes, d.tx_bytes);
-            self.update_speed(&n, rx, tx);
-        }
+        // Navigation must not wait for privileged helper reads. Clear stale
+        // actions/keys immediately, then let the poller load this selection.
+        self.detail = None;
+        self.detail_cursor = 0;
+        self.rate_rx = 0;
+        self.rate_tx = 0;
+        self.prev_sample = None;
+        self.sync_poll_in();
     }
 
     /// Switch to the Log tab and prime it so the pane is never blank on first
-    /// view: synchronous load, reset cursor/selection, re-enable follow, and
+    /// view: request a background load, reset cursor/selection, re-enable follow, and
     /// flip `want_log` so the poller keeps it fresh.
     fn enter_log_tab(&mut self) {
         self.tab = 1;
-        self.log = backend::get_log();
+        if self.log.is_empty() || self.log_cleared {
+            self.log = "(loading journal…)".into();
+        }
         self.log_follow = true;
         self.log_scroll = 0;
         self.log_cursor = 0;
@@ -353,7 +354,12 @@ impl App {
 
     /// Drain any pending message from the update worker threads (non-blocking).
     fn drain_update(&mut self) {
-        let Some(msg) = self.update_out.lock().unwrap().take() else {
+        // Never discard a name/filter draft or confirmation when a delayed
+        // diagnosis finishes. Keep messages queued until normal mode resumes.
+        if !matches!(self.mode, Mode::Normal) {
+            return;
+        }
+        let Some(msg) = self.update_out.lock().unwrap().pop_front() else {
             return;
         };
         match msg {
@@ -364,7 +370,35 @@ impl App {
                 ));
                 self.update = Some(info);
             }
+            UpdateMsg::SelectWhenPresent(name, generation) => {
+                if generation == self.selection_generation {
+                    self.pending_selection = Some((name, generation));
+                }
+            }
+            UpdateMsg::Present(result) => {
+                self.status.clear();
+                self.status_at = None;
+                self.operation_pending = false;
+                self.mode = result.unwrap_or_else(Mode::Message);
+            }
+            UpdateMsg::EditorLoaded(result) => {
+                self.status.clear();
+                self.status_at = None;
+                self.operation_pending = false;
+                match result {
+                    Ok(request) => self.ready_editor = Some(request),
+                    Err(error) => self.mode = Mode::Message(error),
+                }
+            }
+            UpdateMsg::ActionComplete(result) => {
+                self.operation_pending = false;
+                match result {
+                    Ok(message) => self.flash(message),
+                    Err(error) => self.mode = Mode::Message(error),
+                }
+            }
             UpdateMsg::Diagnosed(report) => {
+                self.diagnosing = false;
                 self.status.clear();
                 self.status_at = None;
                 self.mode = Mode::Message(report);
@@ -406,11 +440,8 @@ impl App {
     /// Periodic refresh: live status, and the log if that tab is open. An
     /// explicit reload re-shows fresh log data, so it clears the cleared flag.
     fn tick(&mut self) {
-        self.reload();
-        if self.tab == 1 {
-            self.log = backend::get_log();
-            self.log_cleared = false;
-        }
+        self.log_cleared = false;
+        self.sync_poll_in();
     }
 
     fn move_selection(&mut self, delta: isize) {
@@ -420,6 +451,10 @@ impl App {
         let len = self.tunnels.len() as isize;
         let cur = self.state.selected().unwrap_or(0) as isize;
         let next = (cur + delta).rem_euclid(len) as usize;
+        if next != cur as usize {
+            self.selection_generation = self.selection_generation.wrapping_add(1);
+            self.pending_selection = None;
+        }
         self.state.select(Some(next));
         self.load_detail();
     }
@@ -438,18 +473,6 @@ impl App {
             self.status_at = None;
         }
     }
-}
-
-/// Set a status and repaint immediately - so slow privileged calls (which block
-/// this single-threaded UI for a second or two) still give instant feedback.
-fn flash_now(
-    app: &mut App,
-    terminal: &mut ratatui::DefaultTerminal,
-    msg: impl Into<String>,
-) -> io::Result<()> {
-    app.flash(msg);
-    terminal.draw(|f| ui(f, app))?;
-    Ok(())
 }
 
 /// `wg-tui doctor` - print a system checklist; exit 0 (ok) / 1 (warnings) /
@@ -623,6 +646,34 @@ fn run_setup() -> i32 {
     doctor::system_check().exit_code()
 }
 
+/// User-selected configs follow the helper's 1 MiB limit. Open nonblocking
+/// before checking the file type so a named pipe cannot hold an operation open.
+fn read_config_file(path: &std::path::Path) -> Result<String, String> {
+    use std::io::Read as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    const LIMIT: u64 = 1024 * 1024;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("Config must be a regular file".into());
+    }
+    if metadata.len() > LIMIT {
+        return Err("Config exceeds the 1 MiB limit".into());
+    }
+    let mut config = String::new();
+    file.take(LIMIT + 1)
+        .read_to_string(&mut config)
+        .map_err(|error| error.to_string())?;
+    if config.len() as u64 > LIMIT {
+        return Err("Config exceeds the 1 MiB limit".into());
+    }
+    Ok(config)
+}
+
 fn main() -> io::Result<()> {
     // Handle --version/--help before touching the terminal, so they work in
     // scripts and don't accidentally launch the full-screen UI.
@@ -671,7 +722,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
         let out = app.update_out.clone();
         std::thread::spawn(move || {
             if let Ok(Some(info)) = update::check() {
-                *out.lock().unwrap() = Some(UpdateMsg::Available(info));
+                out.lock().unwrap().push_back(UpdateMsg::Available(info));
             }
         });
     }
@@ -679,6 +730,9 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
     while !app.quit {
         app.apply_snapshot();
         app.drain_update();
+        if let Some(request) = app.ready_editor.take() {
+            edit_loaded_tunnel(&mut app, terminal, request)?;
+        }
         app.sync_poll_in();
         app.expire_status();
         terminal.draw(|f| ui(f, &mut app))?;
@@ -778,12 +832,12 @@ fn handle_key(
             return Ok(());
         }
         Mode::Doc { body, scroll, .. } => {
-            // Total wrapped-ignoring line count; clamp the top line so we never
-            // scroll past the end of the document.
-            let max = (body.lines().count() as u16).saturating_sub(1);
+            // The paragraph wraps at the current viewport width. Counting raw
+            // source lines makes the tail unreachable on narrow terminals.
+            let max = doc_max_scroll(body, terminal.get_frame().area());
             match code {
                 KeyCode::Esc | KeyCode::Char('q') => app.mode = Mode::Normal,
-                KeyCode::Down | KeyCode::Char('j') => *scroll = (*scroll + 1).min(max),
+                KeyCode::Down | KeyCode::Char('j') => *scroll = scroll.saturating_add(1).min(max),
                 KeyCode::Up | KeyCode::Char('k') => *scroll = scroll.saturating_sub(1),
                 KeyCode::PageDown => *scroll = scroll.saturating_add(15).min(max),
                 KeyCode::PageUp => *scroll = scroll.saturating_sub(15),
@@ -798,13 +852,11 @@ fn handle_key(
             match code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
                     app.mode = Mode::Normal;
-                    flash_now(app, terminal, format!("Deleting {name}..."))?;
-                    let _ = backend::deactivate(&name);
-                    match backend::delete(&name) {
-                        Ok(()) => app.flash(format!("Deleted {name}")),
-                        Err(e) => app.flash(format!("Delete failed: {e}")),
-                    }
-                    app.reload();
+                    start_action(app, format!("Deleting {name}…"), move || {
+                        backend::delete(&name)
+                            .map_err(|error| format!("Delete failed: {error}"))?;
+                        Ok(format!("Deleted {name}"))
+                    });
                 }
                 _ => {
                     app.mode = Mode::Normal;
@@ -823,9 +875,6 @@ fn handle_key(
                     let name = buf.trim().to_string();
                     if let Err(e) = backend::validate_tunnel_name(&name) {
                         app.mode = Mode::Message(format!("Invalid tunnel name:\n{e}"));
-                    } else if backend::tunnel_exists(&name) {
-                        app.mode =
-                            Mode::Message(format!("A tunnel named '{name}' already exists."));
                     } else {
                         app.mode = Mode::NewPreset { name };
                     }
@@ -983,19 +1032,17 @@ fn handle_key(
             let selected = items.get(*sel).map(|b| (b.path.clone(), b.name.clone()));
             match code {
                 KeyCode::Esc | KeyCode::Char('q') => app.mode = Mode::Normal,
-                KeyCode::Char('n') => match backend::create_backup() {
-                    Ok(info) => {
-                        app.flash(format!(
-                            "Backed up {} tunnel(s) -> {}",
+                KeyCode::Char('n') => {
+                    app.mode = Mode::Normal;
+                    start_action(app, "Creating backup…".into(), || {
+                        let info = backend::create_backup()
+                            .map_err(|error| format!("Backup failed: {error}"))?;
+                        Ok(format!(
+                            "Backed up {} tunnel(s) -> {} (B to reopen backups)",
                             info.count, info.name
-                        ));
-                        app.mode = Mode::Backup {
-                            items: backend::list_backups(),
-                            sel: 0,
-                        };
-                    }
-                    Err(e) => app.mode = Mode::Message(format!("Backup failed:\n{e}")),
-                },
+                        ))
+                    });
+                }
                 KeyCode::Enter | KeyCode::Char('r') => {
                     if let Some((path, _)) = selected {
                         app.mode = Mode::ConfirmRestore(path);
@@ -1010,10 +1057,12 @@ fn handle_key(
                     if let Some((path, name)) = selected {
                         let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
                         let dest = std::path::Path::new(&home).join(&name);
-                        match backend::export_backup_to(&path, &dest) {
-                            Ok(()) => app.flash(format!("Exported to {}", dest.display())),
-                            Err(e) => app.flash(format!("Export failed: {e}")),
-                        }
+                        app.mode = Mode::Normal;
+                        start_action(app, "Exporting backup…".into(), move || {
+                            backend::export_backup_to(&path, &dest)
+                                .map_err(|error| format!("Export failed: {error}"))?;
+                            Ok(format!("Exported to {}", dest.display()))
+                        });
                     }
                 }
                 _ => {}
@@ -1025,12 +1074,11 @@ fn handle_key(
             match code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
                     app.mode = Mode::Normal;
-                    flash_now(app, terminal, "Restoring backup...".to_string())?;
-                    match backend::restore_backup(&path) {
-                        Ok(n) => app.flash(format!("Restored {n} tunnel(s) from backup")),
-                        Err(e) => app.flash(format!("Restore failed: {e}")),
-                    }
-                    app.reload();
+                    start_action(app, "Restoring backup…".into(), move || {
+                        let count = backend::restore_backup(&path)
+                            .map_err(|error| format!("Restore failed: {error}"))?;
+                        Ok(format!("Restored {count} tunnel(s) from backup"))
+                    });
                 }
                 _ => {
                     app.mode = Mode::Normal;
@@ -1042,16 +1090,19 @@ fn handle_key(
         Mode::ConfirmBackupDelete(path) => {
             let path = path.clone();
             match code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => match backend::delete_backup(&path) {
-                    Ok(()) => app.flash("Backup deleted"),
-                    Err(e) => app.flash(format!("Delete failed: {e}")),
-                },
-                _ => app.flash("Delete cancelled"),
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    app.mode = Mode::Normal;
+                    start_action(app, "Deleting backup…".into(), move || {
+                        backend::delete_backup(&path)
+                            .map_err(|error| format!("Delete failed: {error}"))?;
+                        Ok("Backup deleted (B to reopen backups)".into())
+                    });
+                }
+                _ => {
+                    app.mode = Mode::Normal;
+                    app.flash("Delete cancelled");
+                }
             }
-            app.mode = Mode::Backup {
-                items: backend::list_backups(),
-                sel: 0,
-            };
             return Ok(());
         }
         Mode::LogFilter(buf) => {
@@ -1060,6 +1111,8 @@ fn handle_key(
                 KeyCode::Enter => {
                     let v = buf.trim().to_string();
                     app.log_filter = v;
+                    app.log_cursor = 0;
+                    app.log_select_anchor = None;
                     app.log_cleared = false;
                     app.mode = Mode::Normal;
                 }
@@ -1072,6 +1125,18 @@ fn handle_key(
             return Ok(());
         }
         Mode::Normal => {}
+    }
+
+    if app.operation_pending
+        && (matches!(
+            code,
+            KeyCode::Char(
+                'a' | 'e' | 'n' | 'd' | 'R' | 's' | 'K' | '+' | 'i' | 'p' | 'x' | 'u' | 'B' | 'Q'
+            )
+        ) || (app.tab == 0 && matches!(code, KeyCode::Enter | KeyCode::Char('g' | 'c'))))
+    {
+        app.flash("Another operation is still running");
+        return Ok(());
     }
 
     // Normal-mode keys.
@@ -1186,13 +1251,15 @@ fn handle_key(
         }
         // Backup manager (works from either tab).
         KeyCode::Char('B') => {
-            app.mode = Mode::Backup {
-                items: backend::list_backups(),
-                sel: 0,
-            };
+            start_presentation(app, "Reading backups…".into(), || {
+                Ok(Mode::Backup {
+                    items: backend::list_backups(),
+                    sel: 0,
+                })
+            });
         }
-        KeyCode::Enter | KeyCode::Char('a') => toggle_active(app, terminal)?,
-        KeyCode::Char('e') => edit_tunnel(app, terminal)?,
+        KeyCode::Enter | KeyCode::Char('a') => toggle_active(app),
+        KeyCode::Char('e') => request_editor(app, false),
         KeyCode::Char('n') => app.mode = Mode::InputNew(String::new()),
         KeyCode::Char('d') => {
             if let Some(name) = app.selected_name() {
@@ -1207,18 +1274,18 @@ fn handle_key(
                 };
             }
         }
-        KeyCode::Char('s') => toggle_autostart(app, terminal)?,
-        KeyCode::Char('K') => toggle_killswitch(app, terminal)?,
-        KeyCode::Char('+') => quick_add_peer(app, terminal)?,
+        KeyCode::Char('s') => toggle_autostart(app),
+        KeyCode::Char('K') => toggle_killswitch(app),
+        KeyCode::Char('+') => request_editor(app, true),
         KeyCode::Char('i') => open_import_browser(app),
         KeyCode::Char('g') => generate_show(app),
         KeyCode::Char('c') => show_running(app),
-        KeyCode::Char('p') => persist_live(app, terminal)?,
+        KeyCode::Char('p') => persist_live(app),
         KeyCode::Char('x') => export(app),
         KeyCode::Char('Q') => show_qr(app),
         KeyCode::Char('r') => {
             app.tick();
-            app.flash("Refreshed");
+            app.flash("Refresh requested");
         }
         KeyCode::Char('u') => self_update(app, terminal)?,
         KeyCode::Char('D') => diagnose(app),
@@ -1250,15 +1317,20 @@ fn handle_key(
 /// pings/resolves and can take a few seconds), delivering the report via the
 /// shared mailbox so the loop can pop it into a Message popup when it's ready.
 fn diagnose(app: &mut App) {
+    if app.diagnosing {
+        app.flash("Diagnosis already in progress");
+        return;
+    }
     let Some(name) = app.selected_name() else {
         app.flash("Select a tunnel to diagnose");
         return;
     };
+    app.diagnosing = true;
     app.flash(format!("Diagnosing {name}…"));
     let out = app.update_out.clone();
     std::thread::spawn(move || {
         let report = backend::diagnose_report(&name);
-        *out.lock().unwrap() = Some(UpdateMsg::Diagnosed(report));
+        out.lock().unwrap().push_back(UpdateMsg::Diagnosed(report));
     });
 }
 
@@ -1267,7 +1339,7 @@ fn diagnose(app: &mut App) {
 /// Running `install.sh` (which may prompt for a sudo/su password) while ratatui
 /// owns the raw-mode alternate screen corrupts the terminal and deadlocks on the
 /// hidden prompt, so - exactly like `run_editor` - we drop back to the cooked
-/// foreground terminal for the duration and re-init ratatui afterwards.
+/// foreground terminal for the duration and resume the existing terminal afterwards.
 fn self_update(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
     let Some(info) = &app.update else {
         app.flash("No update available");
@@ -1285,7 +1357,8 @@ fn self_update(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Re
             format!("Update failed: {e}")
         }
         Ok(tardir) => {
-            println!("Installing - you may be prompted for your password...");
+            let latest = tardir.version();
+            println!("Installing v{latest} - you may be prompted for your password...");
             match update::apply(&tardir) {
                 Ok(()) => {
                     println!(
@@ -1308,8 +1381,7 @@ fn self_update(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Re
     let mut _line = String::new();
     let _ = io::stdin().read_line(&mut _line);
 
-    *terminal = ratatui::init();
-    terminal.clear()?;
+    resume_terminal(terminal)?;
     app.update_status = Some(final_status);
     Ok(())
 }
@@ -1321,141 +1393,186 @@ fn activation_failure_message(name: &str, raw: &str) -> String {
     )
 }
 
-fn toggle_active(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
-    let Some(idx) = app.state.selected() else {
-        return Ok(());
+/// Keep the event loop alive while a helper may authenticate or wait for
+/// wg-quick. Modal input and selection stay on the UI thread; results queue.
+fn start_action(
+    app: &mut App,
+    message: String,
+    work: impl FnOnce() -> Result<String, String> + Send + 'static,
+) -> bool {
+    if app.operation_pending {
+        app.flash("Another operation is still running");
+        return false;
+    }
+    app.operation_pending = true;
+    app.flash(message);
+    app.status_at = None;
+    let out = app.update_out.clone();
+    std::thread::spawn(move || {
+        let result = work();
+        out.lock()
+            .unwrap()
+            .push_back(UpdateMsg::ActionComplete(result));
+    });
+    true
+}
+
+fn start_selected_action(
+    app: &mut App,
+    message: String,
+    work: impl FnOnce() -> Result<(String, String), String> + Send + 'static,
+) {
+    let generation = app.selection_generation;
+    let out = app.update_out.clone();
+    start_action(app, message, move || {
+        let (message, name) = work()?;
+        out.lock()
+            .unwrap()
+            .push_back(UpdateMsg::SelectWhenPresent(name, generation));
+        Ok(message)
+    });
+}
+
+fn start_presentation(
+    app: &mut App,
+    message: String,
+    work: impl FnOnce() -> Result<Mode, String> + Send + 'static,
+) {
+    if app.operation_pending {
+        app.flash("Another operation is still running");
+        return;
+    }
+    app.operation_pending = true;
+    app.flash(message);
+    app.status_at = None;
+    let out = app.update_out.clone();
+    std::thread::spawn(move || {
+        let result = work();
+        out.lock().unwrap().push_back(UpdateMsg::Present(result));
+    });
+}
+
+fn toggle_active(app: &mut App) {
+    let Some(tunnel) = app.state.selected().and_then(|idx| app.tunnels.get(idx)) else {
+        return;
     };
-    let Some(t) = app.tunnels.get(idx) else {
-        return Ok(());
-    };
-    let (name, active) = (t.name.clone(), t.active);
-    // `wg-quick` can take a couple of seconds; show progress before we block.
-    flash_now(
+    let (name, active) = (tunnel.name.clone(), tunnel.active);
+    start_action(
         app,
-        terminal,
         format!(
-            "{} {name}...",
+            "{} {name}…",
             if active { "Deactivating" } else { "Activating" }
         ),
-    )?;
-    let res = if active {
-        backend::deactivate(&name)
-    } else {
-        backend::activate(&name)
-    };
-    match res {
-        Ok(()) => {
-            // Activating with a skewed clock often yields a tunnel that's "up"
-            // but never handshakes (server anti-replay) — warn so the user can
-            // diagnose rather than wonder why nothing works.
-            if !active && doctor::clock_synced() == Some(false) {
-                app.flash(
-                    "Activated — clock not NTP-synced; handshake may be rejected (press D to diagnose)",
-                );
+        move || {
+            let result = if active {
+                backend::deactivate(&name)
             } else {
-                app.flash(format!(
+                backend::activate(&name)
+            };
+            result.map_err(|error| activation_failure_message(&name, &error))?;
+            if !active && doctor::clock_synced() == Some(false) {
+                Ok(format!(
+                    "Activated {name} — clock not NTP-synced; handshake may be rejected (press D to diagnose)"
+                ))
+            } else {
+                Ok(format!(
                     "{} {name}",
                     if active { "Deactivated" } else { "Activated" }
-                ));
+                ))
             }
-        }
-        Err(e) => app.mode = Mode::Message(activation_failure_message(&name, &e)),
-    }
-    app.reload();
-    Ok(())
+        },
+    );
 }
 
-fn toggle_autostart(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
-    let Some(d) = &app.detail else { return Ok(()) };
-    let (name, want) = (d.name.clone(), !d.autostart);
-    flash_now(
+fn toggle_autostart(app: &mut App) {
+    let Some(detail) = &app.detail else { return };
+    let (name, want) = (detail.name.clone(), !detail.autostart);
+    start_action(
         app,
-        terminal,
-        format!("Updating start-on-boot for {name}..."),
-    )?;
-    match backend::set_autostart(&name, want) {
-        Ok(()) => app.flash(format!(
-            "Start on boot {} for {name}",
-            if want { "enabled" } else { "disabled" }
-        )),
-        Err(e) => app.flash(format!("Failed: {e}")),
-    }
-    app.load_detail();
-    Ok(())
+        format!("Updating start-on-boot for {name}…"),
+        move || {
+            backend::set_autostart(&name, want)?;
+            Ok(format!(
+                "Start on boot {} for {name}",
+                if want { "enabled" } else { "disabled" }
+            ))
+        },
+    );
 }
 
-fn toggle_killswitch(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
-    let Some(d) = &app.detail else { return Ok(()) };
-    if !d.active {
+fn toggle_killswitch(app: &mut App) {
+    let Some(detail) = &app.detail else { return };
+    if !detail.active {
         app.flash("Kill switch needs an active tunnel");
-        return Ok(());
+        return;
     }
-    let (name, want) = (d.name.clone(), !d.killswitch);
-    flash_now(app, terminal, format!("Updating kill switch for {name}..."))?;
-    match backend::set_killswitch(&name, want) {
-        Ok(()) => app.flash(format!(
-            "Kill switch {} for {name}",
-            if want { "enabled" } else { "disabled" }
-        )),
-        Err(e) => app.mode = Mode::Message(format!("Kill switch failed:\n\n{e}")),
-    }
-    app.load_detail();
-    Ok(())
+    let (name, want) = (detail.name.clone(), !detail.killswitch);
+    start_action(
+        app,
+        format!("Updating kill switch for {name}…"),
+        move || {
+            backend::set_killswitch(&name, want)
+                .map_err(|error| format!("Kill switch failed:\n\n{error}"))?;
+            Ok(format!(
+                "Kill switch {} for {name}",
+                if want { "enabled" } else { "disabled" }
+            ))
+        },
+    );
 }
 
 fn export(app: &mut App) {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     let dest = std::path::Path::new(&home).join("wireguard-tunnels.zip");
-    match backend::export_zip(&dest) {
-        Ok(n) => app.mode = Mode::Message(format!("Exported {n} tunnel(s) to\n{}", dest.display())),
-        Err(e) => app.flash(format!("Export failed: {e}")),
-    }
+    start_action(app, "Exporting tunnels…".into(), move || {
+        let count =
+            backend::export_zip(&dest).map_err(|error| format!("Export failed: {error}"))?;
+        Ok(format!("Exported {count} tunnel(s) to {}", dest.display()))
+    });
 }
 
-/// Generate a fresh keypair + preshared key and show them so they can be
-/// pasted into the editor (mirrors the desktop client's Generate buttons).
 fn generate_show(app: &mut App) {
-    match (backend::generate_keypair(), backend::generate_psk()) {
-        (Ok((priv_k, pub_k)), Ok(psk)) => {
-            app.mode = Mode::Message(format!(
-                "Generated - copy what you need into the editor:\n\n\
-                 PrivateKey   = {priv_k}\n\
-                 PublicKey    = {pub_k}\n\
-                 PresharedKey = {psk}"
-            ));
-        }
-        _ => app.flash("Key generation failed (is 'wg' installed?)"),
-    }
+    start_presentation(app, "Generating keys…".into(), || {
+        let (private, public) = backend::generate_keypair()?;
+        let preshared = backend::generate_psk()?;
+        Ok(Mode::Message(format!(
+            "Private key:\n{private}\n\nPublic key:\n{public}\n\nPreshared key:\n{preshared}\n\nKeep private and preshared keys secret. Any key closes."
+        )))
+    });
 }
 
-/// Show a running tunnel's live wg-level config (`wg showconf`).
 fn show_running(app: &mut App) {
-    let Some(d) = &app.detail else { return };
-    if !d.active {
+    let Some(detail) = &app.detail else { return };
+    if !detail.active {
         app.flash("Tunnel is not active");
         return;
     }
-    let name = d.name.clone();
-    match backend::running_config(&name) {
-        Ok(c) => app.mode = Mode::Message(format!("Running config - {name}\n\n{}", c.trim_end())),
-        Err(e) => app.flash(format!("showconf failed: {e}")),
-    }
+    let name = detail.name.clone();
+    start_presentation(
+        app,
+        format!("Reading running config of {name}…"),
+        move || {
+            let config = backend::running_config(&name)
+                .map_err(|error| format!("showconf failed: {error}"))?;
+            Ok(Mode::Message(format!(
+                "Running config - {name}\n\n{}",
+                config.trim_end()
+            )))
+        },
+    );
 }
 
-fn persist_live(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
-    let Some(d) = &app.detail else { return Ok(()) };
-    if !d.active {
+fn persist_live(app: &mut App) {
+    let Some(detail) = &app.detail else { return };
+    if !detail.active {
         app.flash("Tunnel is not active");
-        return Ok(());
+        return;
     }
-    let name = d.name.clone();
-    flash_now(app, terminal, format!("Saving live state of {name}..."))?;
-    match backend::persist_live(&name) {
-        Ok(()) => app.flash(format!("Saved live state of {name} to its .conf")),
-        Err(e) => app.flash(format!("Save-live failed: {e}")),
-    }
-    app.reload();
-    Ok(())
+    let name = detail.name.clone();
+    start_action(app, format!("Saving live state of {name}…"), move || {
+        backend::persist_live(&name).map_err(|error| format!("Save-live failed: {error}"))?;
+        Ok(format!("Saved live state of {name} to its .conf"))
+    });
 }
 
 /// Build the import browser, starting in the current directory (or $HOME).
@@ -1526,281 +1643,278 @@ fn read_dir_entries(dir: &Path) -> Vec<FileEntry> {
 
 /// Import a tunnel from a `.conf` file or a QR-code image (`.png`/`.jpg`).
 fn import_file(app: &mut App, path: &Path) {
+    import_files(app, &[path.to_path_buf()]);
+}
+
+fn import_files(app: &mut App, paths: &[PathBuf]) {
+    let paths = paths.to_vec();
+    start_selected_action(
+        app,
+        format!("Importing {} file(s)…", paths.len()),
+        move || {
+            let (mut count, mut skipped) = (0, 0);
+            let mut first_error = None;
+            let mut last = None;
+            for path in paths {
+                match import_one_file(&path) {
+                    Ok(name) => {
+                        count += 1;
+                        last = Some(name);
+                    }
+                    Err(error) => {
+                        skipped += 1;
+                        first_error.get_or_insert(error);
+                    }
+                }
+            }
+            if count == 0 {
+                return Err(format!(
+                    "Nothing imported ({skipped} skipped): {}",
+                    first_error.unwrap_or_default()
+                ));
+            }
+            Ok((
+                format!("Imported {count} tunnel(s), {skipped} skipped"),
+                last.unwrap(),
+            ))
+        },
+    );
+}
+
+fn import_one_file(path: &Path) -> Result<String, String> {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-
     let content = if matches!(ext.as_str(), "png" | "jpg" | "jpeg") {
-        backend::decode_qr(path)
+        backend::decode_qr(path)?
     } else {
-        std::fs::read_to_string(path).map_err(|e| e.to_string())
+        read_config_file(path)?
     };
-    let content = match content {
-        Ok(c) => c,
-        Err(e) => {
-            app.mode = Mode::Message(format!("Import failed:\n{e}"));
-            return;
-        }
-    };
-    if let Err(e) = backend::validate_config(&content) {
-        app.mode = Mode::Message(format!("Import failed - invalid config:\n{e}"));
-        return;
-    }
+    backend::validate_config(&content)?;
     let stem = path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("imported");
-    let name = backend::unique_name(stem);
-    match backend::save_config(&name, &content) {
-        Ok(()) => {
-            let warn = if backend::config_runs_scripts(&content) {
-                " ! runs scripts as root"
-            } else {
-                ""
-            };
-            app.flash(format!("Imported as {name}{warn}"));
-        }
-        Err(e) => app.flash(format!("Import failed: {e}")),
-    }
-    app.reload();
-    if let Some(i) = app.tunnels.iter().position(|t| t.name == name) {
-        app.state.select(Some(i));
-        app.load_detail();
-    }
-}
-
-/// Import several files at once (bulk). Each is validated and auto-deduplicated;
-/// invalid ones are skipped and any that run root scripts are flagged.
-fn import_files(app: &mut App, paths: &[PathBuf]) {
-    let (mut count, mut skipped, mut scripts) = (0, 0, false);
-    let mut last = None;
-    for path in paths {
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let content = if matches!(ext.as_str(), "png" | "jpg" | "jpeg") {
-            backend::decode_qr(path)
-        } else {
-            std::fs::read_to_string(path).map_err(|e| e.to_string())
-        };
-        let Ok(content) = content else {
-            skipped += 1;
-            continue;
-        };
-        if backend::validate_config(&content).is_err() {
-            skipped += 1;
-            continue;
-        }
-        scripts |= backend::config_runs_scripts(&content);
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("imported");
-        let name = backend::unique_name(stem);
-        match backend::save_config(&name, &content) {
-            Ok(()) => {
-                last = Some(name);
-                count += 1;
-            }
-            Err(_) => skipped += 1,
-        }
-    }
-    if count > 0 {
-        let warn = if scripts {
-            " ! some run scripts as root"
-        } else {
-            ""
-        };
-        let skip = if skipped > 0 {
-            format!(", {skipped} skipped")
-        } else {
-            String::new()
-        };
-        app.flash(format!("Imported {count} tunnel(s){skip}{warn}"));
-    } else {
-        app.flash(format!("Nothing imported ({skipped} skipped/invalid)"));
-    }
-    app.reload();
-    if let Some(name) = last
-        && let Some(i) = app.tunnels.iter().position(|t| t.name == name)
-    {
-        app.state.select(Some(i));
-        app.load_detail();
-    }
+    let name = backend::unique_name(stem)?;
+    backend::save_config(&name, &content)?;
+    Ok(name)
 }
 
 fn show_qr(app: &mut App) {
     let Some(name) = app.selected_name() else {
         return;
     };
-    match backend::read_config(&name).and_then(|c| qr_lines(&c)) {
-        Ok(lines) => app.mode = Mode::Qr(lines),
-        Err(e) => app.flash(format!("QR failed: {e}")),
-    }
+    start_presentation(app, format!("Preparing QR for {name}…"), move || {
+        let config = backend::read_config(&name)?;
+        Ok(Mode::Qr(qr_lines(&config)?))
+    });
 }
 
-/// Quick-add a blank [Peer] section to the selected tunnel via $EDITOR.
-fn quick_add_peer(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
+fn request_editor(app: &mut App, add_peer: bool) {
     let Some(name) = app.selected_name() else {
-        app.flash("No tunnel selected");
-        return Ok(());
+        return;
     };
-    let cfg = match backend::read_config(&name) {
-        Ok(c) => c,
-        Err(e) => {
-            app.flash(e);
+    if app.operation_pending {
+        app.flash("Another operation is still running");
+        return;
+    }
+    app.operation_pending = true;
+    app.flash(format!("Reading {name} for editor…"));
+    app.status_at = None;
+    let out = app.update_out.clone();
+    std::thread::spawn(move || {
+        let result = backend::read_config(&name).map(|original| {
+            let initial = if add_peer {
+                format!("{}\n\n[Peer]\n# PublicKey = \n# AllowedIPs = \n# Endpoint = \n# PersistentKeepalive = 25\n", original.trim_end())
+            } else { original.clone() };
+            EditorRequest { name, original, initial, new_kind: None }
+        });
+        out.lock()
+            .unwrap()
+            .push_back(UpdateMsg::EditorLoaded(result));
+    });
+}
+
+fn edit_loaded_tunnel(
+    app: &mut App,
+    terminal: &mut ratatui::DefaultTerminal,
+    request: EditorRequest,
+) -> io::Result<()> {
+    let EditorRequest {
+        name,
+        original,
+        initial,
+        new_kind,
+    } = request;
+    let edited = match run_editor(terminal, &initial) {
+        Ok(Some(edited)) => edited,
+        Ok(None) => {
+            app.flash("Edit cancelled");
+            return Ok(());
+        }
+        Err(error) => {
+            app.mode = Mode::Message(format!("Editor failed: {error}"));
             return Ok(());
         }
     };
-    let mut new_cfg = cfg.trim_end().to_string();
-    new_cfg.push_str(
-        "\n\n[Peer]\n# PublicKey = \n# AllowedIPs = \n# Endpoint = \n# PersistentKeepalive = 25\n",
-    );
-    // run_editor already brackets $EDITOR with its own restore()/init() cycle
-    // (and reinstalls the panic hook), so call it directly like the other
-    // editor callers instead of wrapping it in a second restore()/init().
-    let Some(edited) = run_editor(terminal, &new_cfg)? else {
-        return Ok(());
-    };
-    if let Err(e) = backend::validate_config(&edited) {
-        app.flash(format!("Validation failed: {e}"));
-        return Ok(());
-    }
-    match backend::save_config(&name, &edited) {
-        Ok(()) => {
-            app.flash("Peer section added. Edit to fill in the details.");
-            app.reload();
-        }
-        Err(e) => app.flash(format!("Save failed: {e}")),
-    }
-    Ok(())
-}
-
-/// Open the user's $EDITOR on an existing tunnel's config, then validate + save.
-fn edit_tunnel(app: &mut App, terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
-    let Some(name) = app.selected_name() else {
-        return Ok(());
-    };
-    let cfg = match backend::read_config(&name) {
-        Ok(c) => c,
-        Err(e) => {
-            app.flash(format!("Read failed: {e}"));
-            return Ok(());
-        }
-    };
-    let Some(edited) = run_editor(terminal, &cfg)? else {
-        app.flash("Edit cancelled");
-        return Ok(());
-    };
-    if edited == cfg {
+    if edited == original {
         app.flash("No changes");
         return Ok(());
     }
-    if let Err(e) = backend::validate_config(&edited) {
-        app.mode = Mode::Message(format!("Not saved - invalid config:\n{e}"));
+    if let Err(error) = backend::validate_config(&edited) {
+        app.mode = Mode::Message(format!("Not saved - invalid config:\n{error}"));
         return Ok(());
     }
-    match backend::save_config(&name, &edited) {
-        Ok(()) => {
-            // Apply live to a running tunnel without dropping sessions.
-            let active = app.detail.as_ref().map(|d| d.active).unwrap_or(false);
-            if active {
-                match backend::sync_running(&name) {
-                    Ok(()) => app.flash(format!("Saved {name} (applied live)")),
-                    Err(_) => {
-                        app.flash(format!("Saved {name} - reconnect to apply Address/DNS/MTU"))
-                    }
-                }
-            } else {
-                app.flash(format!("Saved {name}"));
+    if let Some(kind) = new_kind {
+        start_selected_action(app, format!("Creating {name}…"), move || {
+            if backend::tunnel_exists(&name)? {
+                return Err(format!("A tunnel named '{name}' already exists."));
             }
-            if backend::config_runs_scripts(&edited) {
-                app.flash(format!("{} ! runs scripts as root", app.status));
-            }
-        }
-        Err(e) => app.flash(format!("Save failed: {e}")),
+            backend::save_config(&name, &edited)?;
+            Ok((format!("Created {name} from {}", kind.label()), name))
+        });
+        return Ok(());
     }
-    app.reload();
+    start_action(app, format!("Saving {name}…"), move || {
+        let active = backend::try_list_tunnels()?
+            .iter()
+            .any(|t| t.name == name && t.active);
+        backend::save_config(&name, &edited)?;
+        if active {
+            match backend::sync_running(&name) {
+                Ok(()) => Ok(format!(
+                    "Saved {name} (WireGuard settings applied live; reconnect for Address/DNS/MTU/routes)"
+                )),
+                Err(error) => Ok(format!(
+                    "Saved {name}; live apply failed: {error}. Reconnect to apply changes"
+                )),
+            }
+        } else {
+            Ok(format!("Saved {name}"))
+        }
+    });
     Ok(())
 }
 
 /// Create a brand-new tunnel: a generated template, opened in $EDITOR.
 fn create_tunnel(
     app: &mut App,
-    terminal: &mut ratatui::DefaultTerminal,
+    _terminal: &mut ratatui::DefaultTerminal,
     name: &str,
     kind: create::TunnelTemplateKind,
 ) -> io::Result<()> {
-    let private_key = match backend::generate_keypair() {
-        Ok((private, _public)) => private,
-        Err(e) => {
-            app.mode = Mode::Message(format!("Key generation failed:\n{e}"));
-            return Ok(());
-        }
-    };
-    let template = create::generate_template(kind, &private_key);
-    let Some(edited) = run_editor(terminal, &template)? else {
-        app.flash("New tunnel cancelled");
-        return Ok(());
-    };
-    if let Err(e) = backend::validate_config(&edited) {
-        app.mode = Mode::Message(format!("Not created - invalid config:\n{e}"));
+    if app.operation_pending {
+        app.flash("Another operation is still running");
         return Ok(());
     }
-    match backend::save_config(name, &edited) {
-        Ok(()) => {
-            let warn = if backend::config_runs_scripts(&edited) {
-                " ! runs scripts as root"
-            } else {
-                ""
-            };
-            app.flash(format!("Created {name} from {}{warn}", kind.label()));
-        }
-        Err(e) => app.flash(format!("Create failed: {e}")),
-    }
-    app.reload();
-    if let Some(i) = app.tunnels.iter().position(|t| t.name == name) {
-        app.state.select(Some(i));
-        app.load_detail();
-    }
+    app.operation_pending = true;
+    app.flash("Generating tunnel keys…");
+    app.status_at = None;
+    let name = name.to_string();
+    let out = app.update_out.clone();
+    std::thread::spawn(move || {
+        let result = backend::generate_keypair().map(|(private, _)| EditorRequest {
+            name,
+            original: String::new(),
+            initial: create::generate_template(kind, &private),
+            new_kind: Some(kind),
+        });
+        out.lock()
+            .unwrap()
+            .push_back(UpdateMsg::EditorLoaded(result));
+    });
     Ok(())
 }
 
 fn rename_tunnel(app: &mut App, orig: &str, new: &str) {
-    if let Err(e) = backend::validate_tunnel_name(new) {
-        app.mode = Mode::Message(format!("Invalid tunnel name:\n{e}"));
+    if let Err(error) = backend::validate_tunnel_name(new) {
+        app.mode = Mode::Message(format!("Invalid tunnel name:\n{error}"));
         return;
     }
     if new == orig {
         return;
     }
-    if backend::tunnel_exists(new) {
-        app.mode = Mode::Message(format!("A tunnel named '{new}' already exists."));
-        return;
-    }
-    let cfg = match backend::read_config(orig) {
-        Ok(c) => c,
-        Err(e) => {
-            app.flash(format!("Read failed: {e}"));
-            return;
+    let (orig, new) = (orig.to_string(), new.to_string());
+    start_selected_action(app, format!("Renaming {orig}…"), move || {
+        if backend::tunnel_exists(&new)? {
+            return Err(format!("A tunnel named '{new}' already exists."));
         }
-    };
-    match backend::rename_config(orig, new, &cfg) {
-        Ok(()) => app.flash(format!("Renamed {orig} -> {new}")),
-        Err(e) => {
-            app.flash(format!("Rename failed: {e}"));
-            return;
+        let config = backend::read_config(&orig)?;
+        backend::rename_config(&orig, &new, &config)?;
+        Ok((format!("Renamed {orig} -> {new}"), new))
+    });
+}
+
+/// A private editor workspace with no predictable shared-directory or symlink
+/// reuse. Cleanup includes editor-created swap/backup files and runs on errors.
+struct EditorDraft {
+    directory: PathBuf,
+    path: PathBuf,
+}
+
+impl EditorDraft {
+    fn new(initial: &str) -> io::Result<Self> {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        let template = std::env::temp_dir().join("wg-tui-editor-XXXXXX");
+        let mut name = std::ffi::CString::new(template.as_os_str().as_bytes())
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
+            .into_bytes_with_nul();
+        if unsafe { libc::mkdtemp(name.as_mut_ptr().cast()) }.is_null() {
+            return Err(io::Error::last_os_error());
         }
+        name.pop();
+        let directory = PathBuf::from(std::ffi::OsString::from_vec(name));
+        let draft = Self {
+            path: directory.join("tunnel.conf"),
+            directory,
+        };
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&draft.path)?;
+        file.write_all(initial.as_bytes())?;
+        Ok(draft)
     }
-    app.reload();
-    if let Some(i) = app.tunnels.iter().position(|t| t.name == new) {
-        app.state.select(Some(i));
-        app.load_detail();
+}
+
+impl Drop for EditorDraft {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.directory);
     }
+}
+
+fn editor_argv(editor: &str) -> io::Result<Vec<String>> {
+    let parts = shell_words::split(editor).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Invalid VISUAL/EDITOR quoting: {error}"),
+        )
+    })?;
+    if parts.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "VISUAL/EDITOR is empty",
+        ));
+    }
+    Ok(parts)
+}
+
+/// Resume the existing terminal without installing another panic hook. Calling
+/// `ratatui::init()` for each editor/update would repeatedly wrap the old hook.
+fn resume_terminal(terminal: &mut ratatui::DefaultTerminal) -> io::Result<()> {
+    crossterm::terminal::enable_raw_mode()?;
+    if let Err(error) = crossterm::execute!(
+        terminal.backend_mut(),
+        crossterm::terminal::EnterAlternateScreen
+    ) {
+        let _ = crossterm::terminal::disable_raw_mode();
+        return Err(error);
+    }
+    terminal.autoresize()?;
+    terminal.clear()
 }
 
 /// Suspend the TUI, run `$EDITOR` on a temp copy of `initial`, return the edited
@@ -1810,50 +1924,33 @@ fn run_editor(
     terminal: &mut ratatui::DefaultTerminal,
     initial: &str,
 ) -> io::Result<Option<String>> {
-    // Put the temp config in a per-user PRIVATE directory: $XDG_RUNTIME_DIR
-    // (already mode 0700) when available, else a 0700 subdir of the temp dir.
-    // This, plus an O_EXCL 0600 create, means no other user can pre-plant a
-    // symlink/file to read the private key or steer the editor.
-    let dir = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir())
-        .unwrap_or_else(|| {
-            let uid = unsafe { libc::geteuid() };
-            let d = std::env::temp_dir().join(format!("wg-tui-{uid}"));
-            let _ = std::fs::create_dir_all(&d);
-            let _ = std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o700));
-            d
-        });
-    let pid = std::process::id();
-    let path = dir.join(format!("wg-tui-{pid}.conf"));
-    let _ = std::fs::remove_file(&path); // clear any stale file from a recycled PID
-    {
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true) // O_EXCL: never follow a symlink or reuse a file
-            .mode(0o600)
-            .open(&path)?;
-        f.write_all(initial.as_bytes())?;
-    }
+    let draft = EditorDraft::new(initial)?;
+    let path = &draft.path;
 
     let editor = std::env::var("VISUAL")
-        .or_else(|_| std::env::var("EDITOR"))
-        .unwrap_or_else(|_| "nano".to_string());
-    let mut parts = editor.split_whitespace();
-    let prog = parts.next().unwrap_or("nano");
-    let args: Vec<&str> = parts.collect();
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            std::env::var("EDITOR")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+        .unwrap_or_else(|| "nano".to_string());
+    // Parse before suspending the terminal; malformed quoting is a useful
+    // input error, not a failed shell launch. No shell expansion is performed.
+    let parts = editor_argv(&editor)?;
+    let (prog, args) = parts.split_first().unwrap();
 
     ratatui::restore();
-    let status = Command::new(prog).args(&args).arg(&path).status();
-    *terminal = ratatui::init();
-    terminal.clear()?;
+    let status = Command::new(prog).args(args).arg(path).status();
+    resume_terminal(terminal)?;
 
-    let result = match status {
-        Ok(s) if s.success() => std::fs::read_to_string(&path).ok(),
-        _ => None,
-    };
-    let _ = std::fs::remove_file(&path);
-    Ok(result)
+    match status {
+        Ok(status) if status.success() => {
+            read_config_file(path).map(Some).map_err(io::Error::other)
+        }
+        _ => Ok(None),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2015,7 +2112,7 @@ fn render_browse(
     sel: usize,
     marked: &std::collections::HashSet<PathBuf>,
 ) {
-    let h = (entries.len() as u16 + 2).clamp(3, 22);
+    let h = entries.len().saturating_add(2).clamp(3, 22) as u16;
     let area = popup_area(f.area(), 72, h);
     f.render_widget(Clear, area);
 
@@ -2437,6 +2534,14 @@ fn filtered_log_lines(app: &App) -> Vec<Line<'static>> {
 }
 
 fn render_log(f: &mut Frame, app: &mut App, area: Rect) {
+    // Cursor, highlight and copy commands must refer to the line that is visible
+    // in follow mode. Clamp before building styles, including after filtering.
+    let last = filtered_log_count(app).saturating_sub(1);
+    app.log_cursor = if app.log_follow {
+        last
+    } else {
+        app.log_cursor.min(last)
+    };
     let mut lines = filtered_log_lines(app);
     if lines.is_empty() {
         let why = if !app.log_filter.is_empty() || app.log_only_selected {
@@ -2453,13 +2558,13 @@ fn render_log(f: &mut Frame, app: &mut App, area: Rect) {
         ));
     }
 
-    let total = lines.len() as u16;
+    let total = lines.len().min(u16::MAX as usize) as u16;
     let view_h = area.height.saturating_sub(2);
     let max_scroll = total.saturating_sub(view_h);
 
     // Clamp cursor into range first (filters may have shrunk the list).
     let last_line = total.saturating_sub(1);
-    if app.log_cursor as u16 > last_line {
+    if app.log_cursor > last_line as usize {
         app.log_cursor = last_line as usize;
     }
     let cursor = app.log_cursor as u16;
@@ -2506,9 +2611,19 @@ fn popup_area(area: Rect, w: u16, h: u16) -> Rect {
 }
 
 fn render_message(f: &mut Frame, title: &str, msg: &str) {
-    let lines = msg.lines().count() as u16;
-    let width = msg.lines().map(|l| l.chars().count()).max().unwrap_or(20) as u16;
-    let area = popup_area(f.area(), (width + 4).max(title.len() as u16 + 4), lines + 3);
+    let lines = msg.lines().count().min(u16::MAX as usize) as u16;
+    let width = msg
+        .lines()
+        .map(|l| l.chars().count())
+        .max()
+        .unwrap_or(20)
+        .min(u16::MAX as usize) as u16;
+    let title_width = title.chars().count().min(u16::MAX as usize) as u16;
+    let area = popup_area(
+        f.area(),
+        width.saturating_add(4).max(title_width.saturating_add(4)),
+        lines.saturating_add(3),
+    );
     f.render_widget(Clear, area);
     let p = Paragraph::new(msg.to_string())
         .block(
@@ -2603,12 +2718,24 @@ fn render_about(f: &mut Frame) {
 
 /// A near-full-screen scrollable document viewer (concepts guide, changelog).
 /// `scroll` is the top visible line. Modelled on how the Log view scrolls.
+fn doc_area(full: Rect) -> Rect {
+    let width = full.width.saturating_sub(4).max(20);
+    let height = full.height.saturating_sub(2).max(6);
+    popup_area(full, width, height)
+}
+
+fn doc_max_scroll(body: &str, full: Rect) -> u16 {
+    let area = doc_area(full);
+    let lines = Paragraph::new(body)
+        .wrap(Wrap { trim: false })
+        .line_count(area.width.saturating_sub(2));
+    lines
+        .saturating_sub(area.height.saturating_sub(2) as usize)
+        .min(u16::MAX as usize) as u16
+}
+
 fn render_doc(f: &mut Frame, title: &str, body: &str, scroll: u16) {
-    let full = f.area();
-    // Leave a small margin so the border doesn't hug the terminal edges.
-    let w = full.width.saturating_sub(4).max(20);
-    let h = full.height.saturating_sub(2).max(6);
-    let area = popup_area(full, w, h);
+    let area = doc_area(f.area());
     f.render_widget(Clear, area);
     let title = format!(" {title}  (↑↓/jk PgUp/PgDn g/G scroll · Esc/q close) ");
     let p = Paragraph::new(body.to_string())
@@ -2674,6 +2801,336 @@ fn qr_lines(text: &str) -> Result<Vec<Line<'static>>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn editor_arguments_preserve_quoted_paths_and_do_not_expand_shell_code() {
+        assert_eq!(
+            editor_argv("'/tmp/editor with spaces' --wait --option 'two words'").unwrap(),
+            vec!["/tmp/editor with spaces", "--wait", "--option", "two words"]
+        );
+        assert_eq!(
+            editor_argv("editor '$HOME' '$(touch nope)' ';'").unwrap(),
+            vec!["editor", "$HOME", "$(touch nope)", ";"]
+        );
+        assert!(editor_argv("editor 'unterminated").is_err());
+        assert!(editor_argv("  ").is_err());
+    }
+
+    #[test]
+    fn removed_selection_never_keeps_another_tunnels_detail() {
+        let mut app = App {
+            tunnels: vec![backend::Tunnel {
+                name: "old".into(),
+                active: true,
+            }],
+            ..App::default()
+        };
+        app.state.select(Some(0));
+        app.detail = Some(backend::Detail {
+            name: "old".into(),
+            active: true,
+            ..Default::default()
+        });
+        *app.poll_out.lock().unwrap() = Some(Snapshot {
+            tunnels: Some(vec![backend::Tunnel {
+                name: "new".into(),
+                active: false,
+            }]),
+            detail: None,
+            log: None,
+            error: None,
+        });
+        app.apply_snapshot();
+        assert_eq!(app.selected_name().as_deref(), Some("new"));
+        assert!(app.detail.is_none());
+        assert!(app.detail_fields().is_empty());
+    }
+
+    #[test]
+    fn config_file_reads_are_bounded_and_never_wait_for_named_pipes() {
+        use std::os::unix::ffi::OsStrExt as _;
+        use std::os::unix::fs::DirBuilderExt as _;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory =
+            std::env::temp_dir().join(format!("wg-ui-config-{}-{stamp}", std::process::id()));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
+        let path = directory.join("example.conf");
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        std::fs::write(&path, "example config").unwrap();
+        assert_eq!(read_config_file(&path).unwrap(), "example config");
+        file.set_len(1024 * 1024 + 1).unwrap();
+        assert!(read_config_file(&path).unwrap_err().contains("1 MiB"));
+        drop(file);
+        std::fs::remove_file(&path).unwrap();
+        let cpath = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(cpath.as_ptr(), 0o600) }, 0);
+        let start = std::time::Instant::now();
+        assert!(
+            read_config_file(&path)
+                .unwrap_err()
+                .contains("regular file")
+        );
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn navigation_requests_detail_without_blocking_or_exposing_previous_keys() {
+        let mut app = App {
+            tunnels: vec![
+                backend::Tunnel {
+                    name: "first".into(),
+                    active: false,
+                },
+                backend::Tunnel {
+                    name: "second".into(),
+                    active: false,
+                },
+            ],
+            detail: Some(backend::Detail {
+                name: "first".into(),
+                public_key: "old key".into(),
+                ..Default::default()
+            }),
+            ..App::default()
+        };
+        app.state.select(Some(0));
+        app.move_selection(1);
+        assert_eq!(app.selected_name().as_deref(), Some("second"));
+        assert!(app.detail_fields().is_empty());
+        assert_eq!(
+            app.poll_in.lock().unwrap().selected.as_deref(),
+            Some("second")
+        );
+        app.enter_log_tab();
+        assert!(app.poll_in.lock().unwrap().want_log);
+        assert_eq!(app.log, "(loading journal…)");
+    }
+
+    #[test]
+    fn asynchronous_selection_applies_only_without_user_navigation() {
+        let mut app = App {
+            tunnels: vec![
+                backend::Tunnel {
+                    name: "first".into(),
+                    active: false,
+                },
+                backend::Tunnel {
+                    name: "second".into(),
+                    active: false,
+                },
+            ],
+            ..App::default()
+        };
+        app.state.select(Some(0));
+        app.pending_selection = Some(("created".into(), app.selection_generation));
+        app.move_selection(1);
+        let snapshot = || Snapshot {
+            tunnels: Some(vec![
+                backend::Tunnel {
+                    name: "first".into(),
+                    active: false,
+                },
+                backend::Tunnel {
+                    name: "second".into(),
+                    active: false,
+                },
+                backend::Tunnel {
+                    name: "created".into(),
+                    active: false,
+                },
+            ]),
+            detail: None,
+            log: None,
+            error: None,
+        };
+        *app.poll_out.lock().unwrap() = Some(snapshot());
+        app.apply_snapshot();
+        assert_eq!(app.selected_name().as_deref(), Some("second"));
+        app.pending_selection = Some(("created".into(), app.selection_generation));
+        *app.poll_out.lock().unwrap() = Some(snapshot());
+        app.apply_snapshot();
+        assert_eq!(app.selected_name().as_deref(), Some("created"));
+        assert!(app.pending_selection.is_none());
+    }
+
+    #[test]
+    fn document_end_reaches_wrapped_tail_in_narrow_terminal() {
+        let body = format!("{}\nEND-MARKER", "word ".repeat(100));
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(24, 10)).unwrap();
+        let max = doc_max_scroll(&body, terminal.get_frame().area());
+        assert!(usize::from(max) > body.lines().count());
+        terminal
+            .draw(|frame| render_doc(frame, "Guide", &body, max))
+            .unwrap();
+        let visible = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(visible.contains("END-MARKER"));
+    }
+
+    #[test]
+    fn editor_load_waits_for_modal_draft_before_opening() {
+        let mut app = App {
+            mode: Mode::InputRename {
+                orig: "wg0".into(),
+                buf: "unsaved".into(),
+            },
+            operation_pending: true,
+            ..App::default()
+        };
+        app.update_out
+            .lock()
+            .unwrap()
+            .push_back(UpdateMsg::EditorLoaded(Ok(EditorRequest {
+                name: "original-selection".into(),
+                original: "original text".into(),
+                initial: "editor text".into(),
+                new_kind: None,
+            })));
+        app.drain_update();
+        assert!(app.ready_editor.is_none());
+        assert!(matches!(&app.mode, Mode::InputRename { buf, .. } if buf == "unsaved"));
+        app.mode = Mode::Normal;
+        app.drain_update();
+        assert!(!app.operation_pending);
+        assert_eq!(
+            app.ready_editor.as_ref().unwrap().name,
+            "original-selection"
+        );
+    }
+
+    #[test]
+    fn helper_action_keeps_ui_state_and_serializes_until_result_is_consumed() {
+        let mut app = App::default();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        assert!(start_action(&mut app, "Working".into(), move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok("Finished".into())
+        }));
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(!start_action(&mut app, "Duplicate".into(), || panic!(
+            "overlapping worker"
+        )));
+        app.mode = Mode::LogFilter("unsaved filter".into());
+        release_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while app.update_out.lock().unwrap().is_empty() {
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        app.drain_update();
+        assert!(matches!(&app.mode, Mode::LogFilter(value) if value == "unsaved filter"));
+        assert!(app.operation_pending);
+        app.mode = Mode::Normal;
+        app.drain_update();
+        assert!(!app.operation_pending);
+        assert_eq!(app.status, "Finished");
+    }
+
+    #[test]
+    fn delayed_diagnosis_does_not_destroy_modal_input_or_drop_messages() {
+        let mut app = App {
+            mode: Mode::InputNew("unsaved-name".into()),
+            ..App::default()
+        };
+        app.update_out
+            .lock()
+            .unwrap()
+            .push_back(UpdateMsg::Diagnosed("report".into()));
+        app.update_out
+            .lock()
+            .unwrap()
+            .push_back(UpdateMsg::Available(update::UpdateInfo {
+                current: "1.0.0".into(),
+                latest: "2.0.0".into(),
+            }));
+        app.drain_update();
+        assert!(matches!(&app.mode, Mode::InputNew(value) if value == "unsaved-name"));
+        assert_eq!(app.update_out.lock().unwrap().len(), 2);
+        app.mode = Mode::Normal;
+        app.drain_update();
+        assert!(matches!(&app.mode, Mode::Message(value) if value == "report"));
+        assert_eq!(app.update_out.lock().unwrap().len(), 1);
+        app.mode = Mode::Normal;
+        app.drain_update();
+        assert_eq!(app.update.as_ref().unwrap().latest, "2.0.0");
+    }
+
+    #[test]
+    fn follow_cursor_and_visual_snapshot_match_displayed_log() {
+        let mut app = App {
+            log: "first\nsecond\nlatest".into(),
+            log_follow: true,
+            ..App::default()
+        };
+        let backend = ratatui::backend::TestBackend::new(40, 5);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_log(frame, &mut app, frame.area()))
+            .unwrap();
+        assert_eq!(app.log_cursor, 2);
+        app.log_select_anchor = Some(1);
+        *app.poll_out.lock().unwrap() = Some(Snapshot {
+            tunnels: None,
+            detail: None,
+            log: Some("rotated".into()),
+            error: None,
+        });
+        app.apply_snapshot();
+        assert_eq!(app.log, "first\nsecond\nlatest");
+    }
+
+    #[test]
+    fn long_messages_do_not_overflow_popup_dimensions() {
+        let backend = ratatui::backend::TestBackend::new(40, 8);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_message(frame, "Failure", &"x".repeat(65535)))
+            .unwrap();
+    }
+
+    #[test]
+    fn editor_drafts_are_exclusive_private_and_clean_backups_on_drop() {
+        let first = EditorDraft::new("private key").unwrap();
+        let second = EditorDraft::new("different key").unwrap();
+        assert_ne!(first.directory, second.directory);
+        assert_eq!(
+            std::fs::metadata(&first.directory)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::metadata(&first.path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let directory = first.directory.clone();
+        std::fs::write(directory.join("editor-backup"), "private key").unwrap();
+        drop(first);
+        assert!(!directory.exists());
+        assert!(second.path.exists());
+    }
 
     #[test]
     fn activation_failure_message_preserves_multiline_unknown_error() {

@@ -1,6 +1,6 @@
 # Releases and verification
 
-Current release: [1.9.1](https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.9.1).
+Current release: [1.9.2](https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.9.2).
 Use the [release list](https://github.com/JamilleJung/wireguard-tui/releases) or
 [latest release](https://github.com/JamilleJung/wireguard-tui/releases/latest)
 for downloads. The [changelog](../CHANGELOG.md) is the canonical history.
@@ -11,11 +11,11 @@ number; terminal and desktop controls/features are not identical.
 
 | Artifact | Build |
 |---|---|
-| `wireguard-tui-1.9.1-x86_64-linux.tar.gz` | Static musl, 64-bit Intel/AMD |
-| `wireguard-tui-1.9.1-i686-linux.tar.gz` | Static musl, 32-bit Intel/AMD |
-| `wireguard-tui-1.9.1-aarch64-linux.tar.gz` | Static musl, 64-bit ARM |
-| `wireguard-tui-1.9.1-armv7-linux.tar.gz` | Static musl, 32-bit ARMv7 |
-| `wireguard-tui_1.9.1-1_amd64.deb` | Debian/Ubuntu amd64 package |
+| `wireguard-tui-1.9.2-x86_64-linux.tar.gz` | Static musl, 64-bit Intel/AMD |
+| `wireguard-tui-1.9.2-i686-linux.tar.gz` | Static musl, 32-bit Intel/AMD |
+| `wireguard-tui-1.9.2-aarch64-linux.tar.gz` | Static musl, 64-bit ARM |
+| `wireguard-tui-1.9.2-armv7-linux.tar.gz` | Static musl, 32-bit ARMv7 |
+| `wireguard-tui_1.9.2-1_amd64.deb` | Debian/Ubuntu amd64 package |
 | `SHA256SUMS`, `SHA256SUMS.minisig`, `minisign.pub` | Checksum manifest, signature, verification key |
 
 A release tarball has `wg-tui`, `wg-helper`, `install.sh`, README/license, and
@@ -44,8 +44,8 @@ Checksums alone cannot authenticate a release.
 For a verified tarball, extract it and run its installer as your normal user:
 
 ```sh
-tar -xzf wireguard-tui-1.9.1-x86_64-linux.tar.gz
-cd wireguard-tui-1.9.1-x86_64-linux
+tar -xzf wireguard-tui-1.9.2-x86_64-linux.tar.gz
+cd wireguard-tui-1.9.2-x86_64-linux
 ./install.sh
 ```
 
@@ -57,7 +57,7 @@ active-local/group-based authorization. From a direct root login use the
 explicit `--allow-root` override after verification.
 
 For the verified package, use
-`sudo apt install ./wireguard-tui_1.9.1-1_amd64.deb`. The `.deb` ships a polkit
+`sudo apt install ./wireguard-tui_1.9.2-1_amd64.deb`. The `.deb` ships a polkit
 rule and desktop assets but no group-membership setup script. Follow the
 [packaging guide](../packaging/PACKAGING.md), especially for SSH access.
 The source/prebuilt installer adds the `wireguard-tui` alias; packages may
@@ -145,8 +145,63 @@ source checkout is another option for inspection. Updating source docs does
 not retroactively update the guide embedded into an already published binary;
 that requires a future build.
 
+## 1.9.2 behavior and upgrade checks
+
+Release helper discovery uses this project's own standard `/usr/local/lib/`
+and `/usr/lib/` paths, or an adjacent **trusted** executable. The executable must
+be root-owned, executable and not group/other writable; its directory ancestry
+must also be trusted. A normal user-owned extracted helper is not automatically
+trusted: install the verified bundle first. Release builds no longer fall back
+to the source build directory or another application's helper. Debug overrides
+remain available for development; they do not create an authorization grant.
+
+Background read-only requests use a noninteractive polkit check before pkexec,
+so missing authorization produces an actionable error instead of repeated
+password dialogs. Explicit mutating actions can still request authentication.
+Helper IPC drains input/output concurrently, retains at most 4 MiB per output
+stream, and has an overall 90-second deadline plus bounded pipe cleanup. Local
+key-generation commands have a 10-second deadline. A privileged process that
+the UI user cannot signal may finish independently after a UI-side timeout;
+check actual tunnel state before retrying.
+
+Before privileged writes or helper grants, `PREFIX` must be an absolute ASCII
+path containing only letters, digits, `/`, `_`, `.` and `-`, with no empty,
+`.` or `..` components or trailing slash. Existing directory ancestors must be
+root-owned without group/other write permission; symlinks are refused. A
+group-writable `/usr/local` can therefore fail these checks. An administrator
+must choose or prepare a protected path; the installer does not take ownership
+of caller directories. `--polkit` supports only `/usr` or `/usr/local`, matching
+the bundled rule. Custom sudoers prefixes still require matching frontend helper
+discovery configuration.
+
+Installer options are validated; unknown options fail instead of being ignored.
+Source builds use the lockfile. Switching sudoers/polkit modes installs and
+validates the selected grant before removing the previous grant. Failed sudoers
+validation or group enrollment reports failure and keeps prior authorization.
+`--polkit` requires pkexec up front; it does not install a rule and then claim
+success without the escalation tool. Packages still do not enroll users.
+
+Verified updates retain ownership of their private download directory through
+installation and clean it up on download, staging or installation failure and
+normal completion. Before privilege escalation, the whole required bundle is
+checked: regular single-link application/helper/installer/assets, no symlink
+components, and a fresh exclusive staging tree. Missing/unsafe assets fail before
+installation starts. HTTPS-only redirects are enforced. TUI automatic updates select its
+published x86_64/i686/aarch64/armv7 builds; unsupported CPUs fail explicitly.
+
+Download refuses a version that is no longer newer and reports the actual
+verified version on success. Install the app/helper together, reapply existing
+kill-switch rules deliberately, and review the current backup/QR limits before
+using an archive created by another tool. Tests cover concrete failure paths;
+passing them does not prove compatibility with every host firewall or distro.
+
 ## Recent release highlights
 
+- **1.9.2 (2026-11-02):** deep-audit fixes for shared validation, trusted helpers,
+  bounded IPC, complete atomic exports, bounded archive/QR reads, helper files,
+  serialized firewall rules, TUI selection/editor/clipboard behavior and verified
+  update lifetimes. Exact limits and compatibility notes are in the current
+  README/security policy.
 - **1.9.1 (2026-11-02):** bounded/preflight backup restore, inline comments,
   helper output/timeout fixes, exact kill-switch names and rule ordering,
   private signed-update staging and exact checksums, installer assets/prebuilt

@@ -223,6 +223,8 @@ jobs:
             exit 1
           fi
           sudo apt-get update && sudo apt-get install -y --no-install-recommends minisign
+          umask 077
+          trap 'rm -f minisign.key' EXIT
           printf '%s\n' "$MINISIGN_KEY" > minisign.key
           minisign -S -s minisign.key -m SHA256SUMS -t "wireguard-tui ${REF#v}"
           rm -f minisign.key

@@ -1,7 +1,7 @@
 # Contributing to wireguard-tui
 
 Bug reports and focused pull requests are welcome. The current release is
-1.9.1; use [CHANGELOG.md](CHANGELOG.md) for user-visible changes.
+1.9.2; use [CHANGELOG.md](CHANGELOG.md) for user-visible changes.
 
 ## Set up and run
 
@@ -95,7 +95,8 @@ not use the desktop client's structured form editor.
 Keep helper changes inside its restricted boundary:
 
 - Fixed verbs, `/etc/wireguard` destinations, and trusted tool search directories
-  `/usr/sbin:/usr/bin:/sbin:/bin`.
+  `/usr/sbin:/usr/bin:/sbin:/bin`; privileged children receive fixed PATH and
+  `LC_ALL=C`.
 - Validate names before filesystem operations: ASCII alphanumeric first,
   letters/digits/`_`/`-`/`.` thereafter, at most 15 bytes, no `..` or `.conf` suffix.
 - Use argv arrays for helper commands. Preserve bounded process groups and
@@ -118,10 +119,31 @@ WG_HELPER=/absolute/path/to/wg-helper cargo run --locked --bin wg-tui
 ```
 
 Debug builds accept `WG_HELPER` directly. Release builds require
-`WG_ALLOW_UNSAFE_HELPER=1`, an absolute regular file owned by root, and no group
-or other write bits. This override does not create a sudoers/polkit grant;
+`WG_ALLOW_UNSAFE_HELPER=1`, an absolute root-owned executable, no group/other
+write bits, and trusted directory ancestry. This override does not create a sudoers/polkit grant;
 installed-path authorization still applies. Prefer installed standard paths for
 normal use.
+
+## Audit regression expectations
+
+Test all repeated fields and exact config schema; use canonical key fixtures,
+not merely 44 characters with an equals sign. Exercise supported Table/FwMark/
+SaveConfig/IPv6 variants as well as invalid controls, CIDRs and keepalive bounds.
+Keep restore preflight and actual saves aligned through the shared validator.
+
+Regression tests cover failed/partial exports preserving old files, other
+hardlink names, symlink directories and linked backups, hidden ZIP duplicates,
+QR grid selection/limits, runtime-only peers, bounded output/blocked input,
+escaped pipe holders and PID lifetime. The helper serializes mutations with a
+2-second lock deadline and refuses unsafe root-managed file types/ownership.
+Keep the child leader unreaped until pipe work finishes if cleanup may signal
+its process group; otherwise PID reuse can target an unrelated process.
+
+Firewall argument tests do not replace disposable Linux namespace integration.
+One managed switch is allowed; nft updates are one batch, iptables families are
+preflighted and committed separately. Preserve failure reporting and protection
+when stop state is unknown. Never run privileged integration tests on real
+production tunnels or a shared host firewall.
 
 ## Reports and pull requests
 

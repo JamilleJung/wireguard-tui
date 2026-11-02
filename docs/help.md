@@ -72,10 +72,12 @@ does not toggle anything.
 - `i`: import a config or QR image. `n`: generate a preset and edit raw text.
 - Up/Down: select a tunnel. `Enter`/`a`: activate/deactivate.
 - `h`/`l`: choose a detail field. `y`: copy it.
-- `e`: edit in $VISUAL, then $EDITOR, then nano. `+`: add a peer in the editor.
+- `e`: edit in $VISUAL, then $EDITOR, then nano. Quoted editor arguments work
+  without shell expansion; a private draft directory is cleaned on return.
+  `+`: add a peer in the editor.
 - `g`: generate keys. `c`: running config. `p`: save live state.
 - `s`: systemd start-on-boot. `Q`: QR. `R`: rename. `d`: delete. `x`: export all.
-- `K`: temporary host-output kill switch. `D`: connection diagnostics.
+- `K`: temporary host-output kill switch (one managed tunnel at a time). `D`: connection diagnostics.
 - `Tab`: Log. `B`: Backup manager. `w`: changelog. `A`: About. `q`/Esc: quit.
 
 On the Log tab, `y`/Enter copies the current line or selection, `v` starts a
@@ -83,7 +85,8 @@ selection, `Y` copies the filtered log, `/` filters, `t` selects this tunnel,
 `f` follows, `c` clears the view, `r` reloads, and `w` saves the full fetched
 log to a file, regardless of view filters. `g`/Home
 and `G`/End move to top/bottom; `h`/`l` scroll horizontally. Esc first cancels a
-visual selection. In Backup, `n` creates, Enter/`r` restores, `d` deletes, and
+visual selection. Visual mode freezes its log snapshot so incoming entries do
+not shift the copied range. In Backup, `n` creates, Enter/`r` restores, `d` deletes, and
 `x` exports the selected archive. Restore/delete ask for confirmation.
 
 Copy tries native clipboard tools before OSC 52. Across SSH, the local terminal
@@ -93,8 +96,9 @@ helper can target the remote display instead.
 Editing an active tunnel attempts WireGuard-level live sync. Address, DNS,
 MTU, and routing changes still need reconnecting. Rename stops an active
 interface without reactivating it; restoring a backup updates files without
-syncing running interfaces. Backup preflight is bounded and complete before
-writes, but later operational failures can leave a partial restore.
+syncing running interfaces. Backup preflight requires an owned single-link regular ZIP and is complete
+before writes: 64 MiB archive, 4096 entries, 1024 configs, 1 MiB per config and
+16 MiB total text. Later operational failures can still leave a partial restore.
 
 ## 5. When a tunnel is active but traffic stalls
 
@@ -105,15 +109,18 @@ Check both public keys, matching PSK, endpoint/port, AllowedIPs, firewall and
 routing, and system time. Unsynchronized time can affect handshakes; a missing
 handshake alone does not establish its cause.
 
-Avoid having two tools manage the same interface at once. The kill switch is
-temporary firewall state, not a daemon or a server NAT setup. App exit does not
+Avoid having two tools manage the same interface at once. The kill switch is temporary host-output policy, not a daemon or server NAT
+setup. It requires an active interface and full firewall tools; only one
+managed switch is supported. nft uses one batch; fallback commits are atomic
+per IPv4/IPv6 family, not across both families. App exit does not
 clear it; app deactivation/delete/rename attempts cleanup. Recheck after
 external service or firewall changes. Existing switches need off/on after an
 upgrade to install new rule logic.
 
 ## 6. Prerequisites and updates
 
-`wg-tui doctor` is read-only; `setup` offers confirmed tools/resolver repairs.
+`wg-tui doctor` is read-only; unknown/unverified prerequisites are warnings.
+`setup` offers confirmed tools/resolver repairs.
 Start-on-boot needs systemd, logs need journald, and DNS lines need resolvconf
 integration. The app does not bundle WireGuard tools or kernel modules.
 
@@ -124,3 +131,39 @@ check. Disable checking with WG_NO_UPDATE_CHECK=1 or a no-update file under
 $XDG_CONFIG_HOME/wireguard-tui (default ~/.config/wireguard-tui). Distro-package
 users should prefer their package manager; the in-app installer uses the source
 installation layout.
+
+## Audited input and operation limits
+
+Imported config files and external-editor output must be regular files at most
+1 MiB. Named pipes and other special files are rejected without waiting for
+a writer.
+
+Config fields are validated on every occurrence, including canonical key pad
+bits, CIDR/keepalive bounds and exact section/field placement. Valid comments,
+repeated fields, scoped IPv6 and supported Table/FwMark/SaveConfig options remain
+available; unknown fields cannot be saved just because they remain in raw text.
+QR import uses at most 32 MiB source files and 4096 × 4096 dimensions with a
+configured 128 MiB decoder budget, and requires one distinct valid tunnel.
+
+Release helpers must be trusted installed/adjacent executables with protected
+ancestry; install a verified user-owned bundle before using its helper. Debug
+helper overrides do not grant authorization. Background reads check polkit
+without password dialogs; explicit mutations can use a desktop agent. A failed
+status refresh preserves prior data rather than inventing an inactive state.
+
+Mutations are serialized by a bounded helper lock. Failed/unknown stops retain
+kill-switch protection and report errors; inspect state before retrying. A
+90-second UI helper deadline bounds waiting, not rollback of already completed
+network changes. Local key generation is bounded separately.
+
+Verified update bundles own their private staging directory, check all required
+assets before privilege escalation, reject a non-newer version at download time,
+and clean staging after completion/failure. Success reports the actual verified
+version. Restart after installing, and prefer the package manager for a packaged
+installation.
+
+Helper-backed tunnel/config/import/backup/key-generation actions use serialized
+workers; conflicting actions are blocked while busy. The external editor and
+update installer deliberately take the foreground. Backup actions return to
+the main screen; B reopens the manager. Quitting does not undo an operation
+already started. Quoted editor arguments are parsed without shell expansion.

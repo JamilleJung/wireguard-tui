@@ -1,5 +1,5 @@
 use std::io::Write as _;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 /// Copy `text` to the system clipboard, trying the most reliable backend first.
 ///
@@ -44,26 +44,61 @@ fn which(prog: &str) -> bool {
         .is_some_and(|paths| std::env::split_paths(&paths).any(|p| p.join(prog).is_file()))
 }
 
-/// Spawn `prog args`, write `text` to its stdin, wait. True on clean exit.
+/// Try one clipboard tool without letting a stalled reader hang the TUI.
 fn pipe_to(prog: &str, args: &[&str], text: &str) -> bool {
-    let mut child = match Command::new(prog)
-        .args(args)
+    let mut command = Command::new(prog);
+    command.args(args);
+    pipe_to_command(command, text, std::time::Duration::from_secs(2))
+}
+
+/// Bound both stdin delivery and child exit: a clipboard helper can stall
+/// before reading a large config, or keep running after EOF. Reap the child in
+/// a worker and terminate its process group if it misses the deadline.
+fn pipe_to_command(
+    mut command: std::process::Command,
+    text: &str,
+    timeout: std::time::Duration,
+) -> bool {
+    use std::io::Write as _;
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    use std::sync::mpsc;
+
+    let Ok(mut child) = command
+        .process_group(0)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    if let Some(mut stdin) = child.stdin.take()
-        && stdin.write_all(text.as_bytes()).is_err()
-    {
+    else {
         return false;
+    };
+    let pid = child.id();
+    let Some(mut stdin) = child.stdin.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return false;
+    };
+    let input = text.to_string();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
+        let status = child.wait();
+        let written = matches!(writer.join(), Ok(Ok(())));
+        let _ = tx.send(status.is_ok_and(|status| status.success()) && written);
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(success) => success,
+        Err(_) => {
+            // The spawned child starts a separate process group. This also
+            // closes inherited stdin in descendants so the writer can finish.
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
+            let _ = rx.recv_timeout(std::time::Duration::from_millis(200));
+            false
+        }
     }
-    // stdin (if any) is dropped above, signalling EOF so wl-copy/xclip stop
-    // reading and serve the selection.
-    child.wait().map(|s| s.success()).unwrap_or(false)
 }
 
 /// OSC 52 fallback: write the clipboard escape straight to the tty. Does not
@@ -116,7 +151,38 @@ pub fn normalize_single_field_copy_value(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_single_field_copy_value;
+    use super::*;
+
+    #[test]
+    fn clipboard_helper_times_out_while_stdin_is_blocked() {
+        let mut command = std::process::Command::new("sh");
+        command.args(["-c", "sleep 30"]);
+        let start = std::time::Instant::now();
+        assert!(!pipe_to_command(
+            command,
+            &"x".repeat(262144),
+            std::time::Duration::from_millis(100)
+        ));
+        assert!(start.elapsed() < std::time::Duration::from_secs(3));
+    }
+
+    #[test]
+    fn clipboard_helper_requires_successful_delivery_and_exit() {
+        let mut command = std::process::Command::new("sh");
+        command.args(["-c", "cat >/dev/null"]);
+        assert!(pipe_to_command(
+            command,
+            &"x".repeat(262144),
+            std::time::Duration::from_secs(3)
+        ));
+        let mut command = std::process::Command::new("sh");
+        command.args(["-c", "exit 7"]);
+        assert!(!pipe_to_command(
+            command,
+            "secret config",
+            std::time::Duration::from_secs(3)
+        ));
+    }
 
     #[test]
     fn trims_accidental_outer_whitespace() {

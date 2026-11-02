@@ -43,6 +43,8 @@ fn curl(url: &str) -> Result<Vec<u8>, String> {
             "-fsSL",
             "--proto",
             "=https",
+            "--proto-redir",
+            "=https",
             "--tlsv1.2",
             "--max-time",
             "8",
@@ -173,15 +175,102 @@ fn tarball_name(version: &str) -> Result<String, String> {
     Ok(format!("wireguard-tui-{version}-{arch}-linux.tar.gz"))
 }
 
+/// Owns the private download directory until the installer has finished.
+/// Failed downloads, failed staging and cancelled/failed installs all clean up.
+pub struct VerifiedUpdate {
+    workdir: PathBuf,
+    directory: PathBuf,
+    version: String,
+}
+
+impl VerifiedUpdate {
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+}
+
+fn validate_update_version(version: &str) -> Result<(), String> {
+    match is_newer(version) {
+        Some(true) => Ok(()),
+        Some(false) => Err(format!(
+            "release {version} is not newer than installed {CURRENT}; update refused"
+        )),
+        None => Err("invalid update version".into()),
+    }
+}
+
+impl Drop for VerifiedUpdate {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.workdir);
+    }
+}
+
+fn stage_bundle(update: &mut VerifiedUpdate, application: &str) -> Result<(), String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let metadata =
+        std::fs::symlink_metadata(&update.directory).map_err(|e| format!("update bundle: {e}"))?;
+    if !metadata.file_type().is_dir() {
+        return Err("unexpected tarball directory".into());
+    }
+    let required = [
+        application.to_string(),
+        "wg-helper".to_string(),
+        "install.sh".to_string(),
+        format!("packaging/{REPO}.desktop"),
+        format!("packaging/{REPO}.svg"),
+        format!("packaging/49-{REPO}.rules"),
+    ];
+    for relative in required {
+        // Check every component as well as the leaf; staging must not follow a
+        // tar entry symlink through packaging/, target/ or the bundle root.
+        let mut current = update.directory.clone();
+        for component in Path::new(&relative).components() {
+            current.push(component);
+            let md = std::fs::symlink_metadata(&current)
+                .map_err(|e| format!("missing update asset {relative}: {e}"))?;
+            if md.file_type().is_symlink() || (!md.is_file() && !md.is_dir()) {
+                return Err(format!("invalid update asset: {relative}"));
+            }
+        }
+        let md = std::fs::symlink_metadata(&current).map_err(|e| e.to_string())?;
+        if !md.is_file() || md.nlink() != 1 {
+            return Err(format!("invalid update asset: {relative}"));
+        }
+    }
+    let target = update.directory.join("target");
+    // Release bundles have no Cargo build directory. Reject a pre-existing
+    // target rather than copying through archive-provided links or stale files.
+    std::fs::create_dir(&target).map_err(|e| format!("stage target: {e}"))?;
+    let release = target.join("release");
+    std::fs::create_dir(&release).map_err(|e| format!("stage release: {e}"))?;
+    for bin in [application, "wg-helper"] {
+        let dest = release.join(bin);
+        std::fs::copy(update.directory.join(bin), &dest)
+            .map_err(|e| format!("stage {bin}: {e}"))?;
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("stage permissions: {e}"))?;
+    }
+    Ok(())
+}
+
 /// Download + verify the latest release into a fresh temp dir, returning the
 /// extracted tarball directory (which holds `install.sh` and the binaries).
-pub fn download_and_verify() -> Result<PathBuf, String> {
+pub fn download_and_verify() -> Result<VerifiedUpdate, String> {
+    if !cfg!(target_os = "linux") {
+        return Err("automatic release updates are supported on Linux only".into());
+    }
     let version = latest_tag()?;
+    validate_update_version(&version)?;
     let tarball = tarball_name(&version)?;
     let base = format!("https://github.com/{OWNER}/{REPO}/releases/download/v{version}");
 
     // A throwaway work dir under TMPDIR, owned by us.
-    let workdir = private_workdir()?;
+    let mut update = VerifiedUpdate {
+        workdir: private_workdir()?,
+        directory: PathBuf::new(),
+        version: version.clone(),
+    };
+    let workdir = &update.workdir;
 
     // Fetch the tarball + signed checksum manifest. (Never the release's own
     // minisign.pub - we only trust the compiled-in one.)
@@ -189,14 +278,14 @@ pub fn download_and_verify() -> Result<PathBuf, String> {
         download_to(&format!("{base}/{asset}"), &workdir.join(asset))?;
     }
 
-    verify_release(&workdir, &tarball)?;
+    verify_release(workdir, &tarball)?;
 
     // Unpack only after verification succeeds.
     let st = Command::new("tar")
         .args(["-xzf"])
         .arg(workdir.join(&tarball))
         .arg("-C")
-        .arg(&workdir)
+        .arg(workdir)
         .status()
         .map_err(|e| format!("tar spawn: {e}"))?;
     if !st.success() {
@@ -208,7 +297,9 @@ pub fn download_and_verify() -> Result<PathBuf, String> {
     if !tardir.is_dir() {
         return Err("unexpected tarball layout".into());
     }
-    Ok(tardir)
+    update.directory = tardir;
+    stage_bundle(&mut update, "wg-tui")?;
+    Ok(update)
 }
 
 /// Download `url` to `dest` with the same hard caps as the API call.
@@ -217,6 +308,8 @@ fn download_to(url: &str, dest: &Path) -> Result<(), String> {
         .args([
             "-fsSL",
             "--proto",
+            "=https",
+            "--proto-redir",
             "=https",
             "--tlsv1.2",
             "--max-time",
@@ -376,18 +469,8 @@ fn which(prog: &str) -> bool {
 /// owns the privileged writes and the sudoers/polkit grant exactly as the first
 /// install did. The running process is left untouched; the user restarts to use
 /// the new binary.
-pub fn apply(tardir: &Path) -> Result<(), String> {
-    // install.sh reuses target/release/<bin> when WG_USE_PREBUILT=1 is set, so
-    // stage the prebuilt, already-verified binaries there to skip any compile.
-    let rel = tardir.join("target").join("release");
-    std::fs::create_dir_all(&rel).map_err(|e| format!("stage dir: {e}"))?;
-    for bin in ["wg-tui", "wg-helper"] {
-        let src = tardir.join(bin);
-        if src.is_file() {
-            std::fs::copy(&src, rel.join(bin)).map_err(|e| format!("stage {bin}: {e}"))?;
-        }
-    }
-
+pub fn apply(update: &VerifiedUpdate) -> Result<(), String> {
+    let tardir = &update.directory;
     // Run the verified installer as the same user; it self-escalates for the
     // /usr/local writes. Keep existing desktop settings during the update.
     let mut installer = Command::new("bash");
@@ -417,6 +500,7 @@ pub fn apply(tardir: &Path) -> Result<(), String> {
 fn state_path(name: &str) -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
     Some(base.join("wireguard-tui").join(name))
 }
@@ -432,6 +516,80 @@ pub fn disabled() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn downloaded_release_cannot_silently_downgrade() {
+        let current = super::parse(super::CURRENT).unwrap();
+        assert!(super::validate_update_version(super::CURRENT).is_err());
+        assert!(super::validate_update_version("0.0.0").is_err());
+        assert!(super::validate_update_version("bad").is_err());
+        assert!(super::validate_update_version(&format!("{}.0.0", current.0 + 1)).is_ok());
+        let update = bundle_fixture();
+        assert_eq!(update.version(), "1.9.2");
+    }
+
+    use super::{REPO, VerifiedUpdate, stage_bundle};
+
+    fn bundle_fixture() -> VerifiedUpdate {
+        let workdir = private_workdir().unwrap();
+        let directory = workdir.join("bundle");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::create_dir(directory.join("packaging")).unwrap();
+        for file in [
+            "wg-tui".to_string(),
+            "wg-helper".into(),
+            "install.sh".into(),
+            format!("packaging/{REPO}.desktop"),
+            format!("packaging/{REPO}.svg"),
+            format!("packaging/49-{REPO}.rules"),
+        ] {
+            std::fs::write(directory.join(file), b"fixture").unwrap();
+        }
+        VerifiedUpdate {
+            workdir,
+            directory,
+            version: "1.9.2".into(),
+        }
+    }
+
+    #[test]
+    fn update_requires_complete_bundle_before_staging() {
+        let mut update = bundle_fixture();
+        let path = update.workdir.clone();
+        std::fs::remove_file(update.directory.join("wg-helper")).unwrap();
+        assert!(stage_bundle(&mut update, "wg-tui").is_err());
+        assert!(!update.directory.join("target").exists());
+        drop(update);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn update_staging_and_lifetime_cleanup() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut update = bundle_fixture();
+        let path = update.workdir.clone();
+        stage_bundle(&mut update, "wg-tui").unwrap();
+        for bin in ["wg-tui", "wg-helper"] {
+            let file = update.directory.join("target/release").join(bin);
+            assert_eq!(std::fs::read(&file).unwrap(), b"fixture");
+            assert_eq!(
+                std::fs::metadata(file).unwrap().permissions().mode() & 0o777,
+                0o755
+            );
+        }
+        drop(update);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn update_rejects_archive_links_and_existing_build_tree() {
+        let mut update = bundle_fixture();
+        std::fs::remove_file(update.directory.join("wg-helper")).unwrap();
+        std::os::unix::fs::symlink("install.sh", update.directory.join("wg-helper")).unwrap();
+        assert!(stage_bundle(&mut update, "wg-tui").is_err());
+        let mut update = bundle_fixture();
+        std::os::unix::fs::symlink("packaging", update.directory.join("target")).unwrap();
+        assert!(stage_bundle(&mut update, "wg-tui").is_err());
+    }
     use super::{extract_json_string, is_newer, parse, private_workdir, tarball_checksum};
 
     #[test]
