@@ -183,19 +183,51 @@ done
 
 # Map (wireguard-tools, C toolchain) to per-distro package names.
 install_pkgs() {
-    say "Installing runtime + build dependencies"
+    local build_pkgs=""
+    if ! prebuilt_ready; then
+        case "$PM" in
+            apt-get) build_pkgs="build-essential" ;;
+            pacman|xbps-install) build_pkgs="base-devel" ;;
+            apk) build_pkgs="build-base" ;;
+            *) build_pkgs="gcc" ;;
+        esac
+    fi
+    say "Installing dependencies"
     case "$PM" in
         apt-get) as_root apt-get update -qq || true
-                 as_root apt-get install -y wireguard-tools build-essential curl ca-certificates ;;
-        dnf|yum) as_root "$PM" install -y wireguard-tools gcc curl ca-certificates ;;
-        pacman)  as_root pacman -Sy --noconfirm --needed wireguard-tools base-devel curl ;;
-        zypper)  as_root zypper --non-interactive install wireguard-tools gcc curl ca-certificates ;;
-        apk)     as_root apk add --no-cache wireguard-tools build-base curl ;;
-        xbps-install) as_root xbps-install -Sy wireguard-tools base-devel curl ;;
-        eopkg)   as_root eopkg install -y wireguard-tools gcc curl ;;
+                 as_root apt-get install -y wireguard-tools $build_pkgs curl ca-certificates ;;
+        dnf|yum) as_root "$PM" install -y wireguard-tools $build_pkgs curl ca-certificates ;;
+        pacman)  as_root pacman -Sy --noconfirm --needed wireguard-tools $build_pkgs curl ;;
+        zypper)  as_root zypper --non-interactive install wireguard-tools $build_pkgs curl ca-certificates ;;
+        apk)     as_root apk add --no-cache wireguard-tools $build_pkgs curl ;;
+        xbps-install) as_root xbps-install -Sy wireguard-tools $build_pkgs curl ;;
+        eopkg)   as_root eopkg install -y wireguard-tools $build_pkgs curl ;;
         *) warn "Unknown package manager — make sure 'wireguard-tools', a C compiler and curl are installed." ;;
     esac
     ok "Dependencies installed."
+}
+
+# Reuse an extracted release bundle without treating source checkouts as
+# prebuilt installs. The updater already stages its verified binaries and opts
+# in explicitly; a manual bundle has adjacent binaries and no Cargo manifest.
+prebuilt_ready() {
+    [ "${WG_USE_PREBUILT:-0}" = 1 ] \
+        && [ -f "$HERE/target/release/wg-tui" ] \
+        && [ -f "$HERE/target/release/wg-helper" ]
+}
+
+prepare_prebuilt() {
+    if [ "${WG_USE_PREBUILT:-0}" = 1 ]; then
+        prebuilt_ready || die "Prebuilt install requires both application and helper binaries."
+        return 0
+    fi
+    [ ! -f "$HERE/Cargo.toml" ] || return 0
+    [ -f "$HERE/wg-tui" ] && [ -f "$HERE/wg-helper" ] \
+        || die "Incomplete release bundle: application and helper binaries are required."
+    install -d "$HERE/target/release"
+    install -m755 "$HERE/wg-tui" "$HERE/target/release/wg-tui"
+    install -m755 "$HERE/wg-helper" "$HERE/target/release/wg-helper"
+    WG_USE_PREBUILT=1
 }
 
 # Ensure a Rust toolchain and build the release binary AS THE INVOKING USER (via
@@ -204,7 +236,7 @@ install_pkgs() {
 build_app() {
     # Self-update path: when WG_USE_PREBUILT=1 and both verified binaries are
     # already staged in target/release, skip the build entirely.
-    if [ "${WG_USE_PREBUILT:-0}" = 1 ] && [ -f "$HERE/target/release/wg-tui" ] && [ -f "$HERE/target/release/wg-helper" ]; then
+    if prebuilt_ready; then
         ok "Using staged prebuilt binaries (skipping build)."
         return 0
     fi
@@ -243,7 +275,7 @@ BUILD
 verify_build_deps() {
     # Self-update path: prebuilt binaries are reused, so a missing compiler must
     # not abort the update.
-    if [ "${WG_USE_PREBUILT:-0}" = 1 ] && [ -f "$HERE/target/release/wg-tui" ] && [ -f "$HERE/target/release/wg-helper" ]; then
+    if prebuilt_ready; then
         return 0
     fi
     # When a root install will reuse the prebuilt binary, there is nothing to
@@ -368,6 +400,7 @@ printf "${B}wireguard-tui installer${N}\n"
 [ "$ACTION" = "uninstall" ] && uninstall
 [ -n "$PM" ] && say "Detected package manager: ${PM}" || true
 
+prepare_prebuilt
 install_pkgs
 ensure_sudo
 verify_build_deps
