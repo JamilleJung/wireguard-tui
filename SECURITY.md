@@ -163,4 +163,3 @@ The current dependency lockfile passes without advisory exceptions; older
 vulnerabilities, unsoundness, unmaintained notices and other warnings fail the
 audit gate. Release binaries embed SBOM data through `cargo auditable build`,
 allowing `cargo audit bin <binary>` to inspect the compiled dependency set.
-
