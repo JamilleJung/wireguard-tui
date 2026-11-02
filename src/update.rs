@@ -72,9 +72,11 @@ fn latest_tag() -> Result<String, String> {
         "https://api.github.com/repos/{OWNER}/{REPO}/releases/latest"
     ))?;
     let body = String::from_utf8_lossy(&body);
-    extract_json_string(&body, "tag_name")
-        .map(|t| t.trim_start_matches('v').to_string())
-        .ok_or_else(|| "no tag_name in release JSON".to_string())
+    let tag = extract_json_string(&body, "tag_name")
+        .ok_or_else(|| "no tag_name in release JSON".to_string())?;
+    let version = tag.strip_prefix('v').unwrap_or(&tag);
+    parse(version).ok_or_else(|| "invalid release version".to_string())?;
+    Ok(version.to_string())
 }
 
 /// Minimal, dependency-free extraction of a top-level JSON string field
@@ -100,10 +102,13 @@ fn extract_json_string(json: &str, key: &str) -> Option<String> {
     idx += 1;
     let start = idx;
     while idx < bytes.len() && bytes[idx] != b'"' {
-        if bytes[idx] == b'\\' {
+        if bytes[idx] == b'\\' || bytes[idx].is_ascii_control() {
             return None; // refuse escapes -> not a plain tag
         }
         idx += 1;
+    }
+    if idx == bytes.len() {
+        return None; // unterminated string
     }
     let val = &json[start..idx];
     if val.is_empty() || val.len() > 32 {
@@ -115,10 +120,16 @@ fn extract_json_string(json: &str, key: &str) -> Option<String> {
 /// Strict semver triple. Release tags are validated `^v[0-9]+\.[0-9]+\.[0-9]+$`
 /// by the workflow, so this exact compare avoids the `semver` crate.
 fn parse(v: &str) -> Option<(u64, u64, u64)> {
-    let mut it = v.trim().trim_start_matches('v').split('.');
-    let a = it.next()?.parse().ok()?;
-    let b = it.next()?.parse().ok()?;
-    let c = it.next()?.parse().ok()?;
+    let mut it = v.strip_prefix('v').unwrap_or(v).split('.');
+    let component = |part: &str| {
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        part.parse().ok()
+    };
+    let a = component(it.next()?)?;
+    let b = component(it.next()?)?;
+    let c = component(it.next()?)?;
     if it.next().is_some() {
         return None; // reject 4+ components
     }
@@ -170,10 +181,7 @@ pub fn download_and_verify() -> Result<PathBuf, String> {
     let base = format!("https://github.com/{OWNER}/{REPO}/releases/download/v{version}");
 
     // A throwaway work dir under TMPDIR, owned by us.
-    let workdir =
-        std::env::temp_dir().join(format!("wg-tui-update-{version}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&workdir);
-    std::fs::create_dir_all(&workdir).map_err(|e| format!("temp dir: {e}"))?;
+    let workdir = private_workdir()?;
 
     // Fetch the tarball + signed checksum manifest. (Never the release's own
     // minisign.pub - we only trust the compiled-in one.)
@@ -256,26 +264,53 @@ fn verify_release(workdir: &Path, tarball: &str) -> Result<(), String> {
         return Err("signature verification FAILED - refusing to update".into());
     }
 
-    // 3) Now SHA256SUMS is trusted; verify the tarball's digest is listed in it.
-    //    `--ignore-missing` so only our one tarball line must match (SHA256SUMS
-    //    lists every asset). Restrict the check to our tarball to avoid spurious
-    //    failures on assets we never downloaded.
+    // 3) Check exactly this archive. A suffix match or --ignore-missing can
+    // accidentally accept a manifest that only names a different file.
+    let sums = std::fs::read_to_string(workdir.join("SHA256SUMS")).map_err(|e| e.to_string())?;
+    let checksum = tarball_checksum(&sums, tarball)?;
+    let selected = workdir.join("selected.sha256");
+    std::fs::write(&selected, checksum).map_err(|e| e.to_string())?;
     let st = Command::new("sha256sum")
-        .args(["-c", "--ignore-missing", "--strict"])
-        .arg("SHA256SUMS")
+        .args(["-c", "--strict"])
+        .arg(&selected)
         .current_dir(workdir)
         .status()
         .map_err(|e| format!("sha256sum spawn: {e}"))?;
     if !st.success() {
         return Err("checksum mismatch on downloaded tarball - refusing".into());
     }
-    // Sanity: the tarball line must actually be present (ignore-missing would
-    // otherwise pass an empty check).
-    let sums = std::fs::read_to_string(workdir.join("SHA256SUMS")).map_err(|e| e.to_string())?;
-    if !sums.lines().any(|l| l.trim_end().ends_with(tarball)) {
-        return Err("downloaded tarball is not listed in SHA256SUMS - refusing".into());
-    }
     Ok(())
+}
+
+/// mkdtemp creates an exclusive, unpredictable directory with mode 0700, so
+/// another local user cannot replace verified files before installation.
+fn private_workdir() -> Result<PathBuf, String> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let template = std::env::temp_dir().join("wg-tui-update-XXXXXX");
+    let mut name = std::ffi::CString::new(template.as_os_str().as_bytes())
+        .map_err(|e| format!("temp dir: {e}"))?
+        .into_bytes_with_nul();
+    let result = unsafe { libc::mkdtemp(name.as_mut_ptr().cast()) };
+    if result.is_null() {
+        return Err(format!("temp dir: {}", std::io::Error::last_os_error()));
+    }
+    name.pop();
+    Ok(PathBuf::from(std::ffi::OsString::from_vec(name)))
+}
+
+fn tarball_checksum(sums: &str, tarball: &str) -> Result<String, String> {
+    let mut matching = sums.lines().filter_map(|line| {
+        let (hash, name) = line.split_once("  ").or_else(|| line.split_once(" *"))?;
+        (name == tarball).then_some((hash, line))
+    });
+    let (hash, line) = matching
+        .next()
+        .ok_or("downloaded tarball is not listed in SHA256SUMS - refusing")?;
+    if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) || matching.next().is_some()
+    {
+        return Err("invalid or duplicate tarball checksum - refusing".into());
+    }
+    Ok(format!("{line}\n"))
 }
 
 /// Ensure the `minisign` CLI is available, attempting a single best-effort
@@ -354,10 +389,15 @@ pub fn apply(tardir: &Path) -> Result<(), String> {
     }
 
     // Run the verified installer as the same user; it self-escalates for the
-    // /usr/local writes. --no-desktop: the TUI ships no desktop entry by default.
-    let st = Command::new("bash")
-        .arg(tardir.join("install.sh"))
-        .arg("--no-desktop")
+    // /usr/local writes. Keep existing desktop settings during the update.
+    let mut installer = Command::new("bash");
+    installer.arg(tardir.join("install.sh")).arg("--no-desktop");
+    // A user who launched the app as root already chose the privileged flow;
+    // the verified prebuilt update does not need the source-build root guard.
+    if unsafe { libc::geteuid() } == 0 {
+        installer.arg("--allow-root");
+    }
+    let st = installer
         .env("WG_USE_PREBUILT", "1")
         .current_dir(tardir)
         .status()
@@ -392,7 +432,48 @@ pub fn disabled() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_json_string, is_newer, parse};
+    use super::{extract_json_string, is_newer, parse, private_workdir, tarball_checksum};
+
+    #[test]
+    fn private_update_directories_are_exclusive_and_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let first = private_workdir().unwrap();
+        let second = private_workdir().unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            std::fs::metadata(&first).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        std::fs::remove_dir(first).unwrap();
+        std::fs::remove_dir(second).unwrap();
+    }
+
+    #[test]
+    fn checksum_requires_one_exact_archive_name() {
+        let hash = "a".repeat(64);
+        let name = "wireguard-tui-1.9.1-x86_64-linux.tar.gz";
+        let line = format!("{hash}  {name}\n");
+        assert_eq!(tarball_checksum(&line, name).unwrap(), line);
+        assert!(tarball_checksum(&format!("{hash}  prefix-{name}\n"), name).is_err());
+        assert!(tarball_checksum(&format!("{line}{line}"), name).is_err());
+        assert!(tarball_checksum(&format!("invalid  {name}\n"), name).is_err());
+        assert!(tarball_checksum("", name).is_err());
+    }
+
+    #[test]
+    fn malformed_release_strings_are_rejected() {
+        assert_eq!(
+            extract_json_string("{\"tag_name\":\"v1.9.1", "tag_name"),
+            None
+        );
+        assert_eq!(
+            extract_json_string("{\"tag_name\":\"v1.9\n.1\"}", "tag_name"),
+            None
+        );
+        for invalid in ["../1.2.3", "+1.2.3", "vv1.2.3", "1.2.3 ", "1.2.3/evil"] {
+            assert_eq!(parse(invalid), None, "{invalid}");
+        }
+    }
 
     #[test]
     fn extract_json_string_valid() {

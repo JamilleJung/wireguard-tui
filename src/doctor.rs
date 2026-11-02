@@ -266,6 +266,7 @@ pub fn dns_ok() -> bool {
 
 /// Whether the system clock is disciplined by NTP. `None` if it can't be told.
 /// Read-only adjtimex (modes stays 0) — never changes the clock.
+#[cfg(target_os = "linux")]
 pub fn clock_synced() -> Option<bool> {
     let mut tx: libc::timex = unsafe { std::mem::zeroed() };
     let ret = unsafe { libc::adjtimex(&mut tx) };
@@ -273,6 +274,13 @@ pub fn clock_synced() -> Option<bool> {
         return None;
     }
     Some((tx.status & libc::STA_UNSYNC) == 0)
+}
+
+// The application targets Linux; keeping this read-only probe optional also
+// allows its platform-independent validation tests to run on other Unix hosts.
+#[cfg(not(target_os = "linux"))]
+pub fn clock_synced() -> Option<bool> {
+    None
 }
 
 /// A copy-pasteable command to install a resolvconf provider (for `DNS =` lines).

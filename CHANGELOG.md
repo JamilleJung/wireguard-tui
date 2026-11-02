@@ -4,6 +4,29 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - 2026-11-02
+
+### Fixed
+- Restore ZIP backups with the current ZIP library; validate the complete archive
+  before writing tunnels, reject invalid names and script hooks, and limit
+  decompressed config sizes.
+- Preserve WireGuard inline comments when parsing and validating tunnel configs.
+- Drain helper command output while it runs so large status dumps and logs do not
+  hang; timeouts also terminate child processes.
+- Match kill switch firewall rules to the exact tunnel name, keeping `wg0` and
+  `wg01` independent, and place protection before existing allow rules.
+- Align Alpine and Void packaging versions with the current release; include
+  installer assets at their expected paths in release archives and allow verified
+  prebuilt updates for users already running as root.
+
+### Security
+- Stage signed updates in private, exclusive temporary directories and verify the
+  exact downloaded archive against its signed checksum. Reject malformed release
+  versions before using them in URLs or paths.
+- Update locked dependencies and CI actions, including ZIP 9.2.2, rqrr 0.11.0,
+  ratatui 0.30.2, libc 0.2.191, and lru 0.18.5. The dependency audit passes
+  with no advisory exceptions.
+
 ## [1.9.0] - 2026-07-27
 
 ### Fixed
