@@ -1,7 +1,7 @@
 # Contributing to wireguard-tui
 
 Bug reports and focused pull requests are welcome. The current release is
-1.9.2; use [CHANGELOG.md](CHANGELOG.md) for user-visible changes.
+1.9.3; use [CHANGELOG.md](CHANGELOG.md) for user-visible changes.
 
 ## Set up and run
 

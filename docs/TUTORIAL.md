@@ -1,6 +1,6 @@
 # wireguard-tui tutorial
 
-This guide describes **1.9.2**. `wg-tui` manages plain Linux WireGuard configs
+This guide describes **1.9.3**. `wg-tui` manages plain Linux WireGuard configs
 with a keyboard interface. The [distro guide](DISTROS.md) covers prerequisites;
 [the concepts guide](help.md) explains keys, peers, and routing.
 
@@ -294,6 +294,12 @@ validates the selected grant before removing the previous grant. Failed sudoers
 validation or group enrollment reports failure and keeps prior authorization.
 `--polkit` requires pkexec up front; it does not install a rule and then claim
 success without the escalation tool. Packages still do not enroll users.
+
+Repeating `--polkit` checks the existing `wireguard` group and account
+membership before invoking group-management tools. An already configured
+Alpine/BusyBox system can reinstall without optional Shadow `groupadd`/`usermod`.
+Missing groups or membership must still be created and verified before the
+previous authorization is removed.
 
 Verified updates retain ownership of their private download directory through
 installation and clean it up on download, staging or installation failure and
