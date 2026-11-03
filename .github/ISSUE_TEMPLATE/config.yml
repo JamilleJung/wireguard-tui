@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/JamilleJung/wireguard-tui/security/advisories/new
+    about: Use private reporting for exploitable issues; see SECURITY.md for the email alternative.
+  - name: Usage and troubleshooting guide
+    url: https://github.com/JamilleJung/wireguard-tui/blob/main/docs/TUTORIAL.md
+    about: Installation, keyboard controls, tunnel management and troubleshooting.
+  - name: Accessibility information
+    url: https://github.com/JamilleJung/wireguard-tui/blob/main/ACCESSIBILITY.md
+    about: Current interaction options and known limitations. Use Bug report to report an accessibility barrier.

@@ -155,3 +155,7 @@ using [SECURITY.md](SECURITY.md).
 
 By contributing, you agree to the [MIT license](LICENSE). This project is
 independent of the WireGuard project.
+
+Follow the [Code of Conduct](CODE_OF_CONDUCT.md) when participating. See
+[Accessibility](ACCESSIBILITY.md) for current interaction options, known limits
+and how to report a barrier.

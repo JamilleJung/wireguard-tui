@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a problem, including an accessibility barrier.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For security vulnerabilities, use [private reporting](https://github.com/JamilleJung/wireguard-tui/security/advisories/new) or the contact in [SECURITY.md](https://github.com/JamilleJung/wireguard-tui/blob/main/SECURITY.md).
+        Remove private keys, preshared keys and sensitive network details from public reports. Do not attach a full config, QR code or backup archive.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the keys you pressed and the screen or command involved. A small example using disposable data is helpful.
+      placeholder: |
+        1. Open wg-tui
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of wg-tui --version; include the commit if built from source.
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Linux distribution and CPU architecture
+      placeholder: Distribution, version, package manager and output of uname -m
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation method
+      options:
+        - Release tarball and install.sh
+        - Debian package (.deb)
+        - Source checkout and install.sh
+        - Cargo build
+        - Distro package or recipe
+        - Other or unsure
+    validations:
+      required: true
+  - type: textarea
+    id: terminal
+    attributes:
+      label: Terminal and session
+      description: Include the terminal name/version, TERM value, terminal size, local or SSH session, and tmux/screen if used. For an accessibility barrier, include the assistive technology and the action that was blocked.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Relevant errors or diagnostics
+      description: Optional redacted output from wg-tui doctor, the application or the system journal. Review all output before posting; screenshots can expose keys too.
+      render: text

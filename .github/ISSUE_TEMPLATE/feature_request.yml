@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest a change to the terminal interface or tunnel workflow.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe what you are trying to do and what gets in the way. Accessibility improvements are welcome here too.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe a possible solution, if you have one. You do not need an implementation to report a need.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: Other approaches you have considered or tried.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include relevant terminal, distro or workflow details. Use disposable data and remove keys or sensitive network information from examples and images.
