@@ -18,9 +18,28 @@ pub fn scratch_dir(tag: &str) -> PathBuf {
 
 /// Write an executable shell script (a fake `wg-helper`) into `dir`.
 pub fn fake_helper(dir: &std::path::Path, body: &str) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let path = dir.join("wg-helper");
-    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    write_script(&path, &format!("#!/bin/sh\n{body}\n"), 0o700);
     path
+}
+
+/// Write an executable script from a short-lived child process. Writing it
+/// from this (multi-threaded) test process would let a concurrent test fork
+/// inherit the open write handle, and exec would fail with ETXTBSY.
+fn write_script(path: &std::path::Path, content: &str, mode: u32) {
+    use std::io::Write;
+    let mut child = std::process::Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\" && chmod \"$2\" \"$1\"", "sh"])
+        .arg(path)
+        .arg(format!("{mode:o}"))
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(content.as_bytes())
+        .unwrap();
+    assert!(child.wait().unwrap().success());
 }
