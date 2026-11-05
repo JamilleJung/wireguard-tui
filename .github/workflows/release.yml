@@ -2,6 +2,12 @@ name: Release
 
 # Tag a version to cut a release:
 #   git tag vX.Y.Z && git push origin vX.Y.Z
+#
+# Release gate (fail closed): `publish` runs only if EVERY job below
+# succeeded — version consistency, fmt/clippy, tests, audit, the firewall
+# namespace test, the kill switch end-to-end test, all four static builds,
+# the .deb, QEMU smoke tests of every architecture, signing, and independent
+# verification of the signed artifacts. A skipped or cancelled job blocks it.
 on:
   push:
     tags: ["v*"]
@@ -11,16 +17,90 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # ---- static musl binaries for every supported CPU (32- and 64-bit) ----
+  # ---------------------------------------------------------------- checks
+  version:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tag, Cargo.toml, Cargo.lock, CHANGELOG and packaging agree
+        run: bash scripts/check-version.sh --tag "$GITHUB_REF_NAME"
+
+  lint:
+    name: rustfmt & clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Shell lint
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck
+          shellcheck -S warning install.sh tests/*.sh scripts/*.sh
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: bash scripts/gen-fixtures.sh --check
+      - run: cargo test --locked
+      - name: Property tests with more cases
+        env:
+          PROP_CASES: "20000"
+        run: cargo test --locked --release --test 'prop_*'
+      - run: bash tests/installer-sanity.sh
+
+  audit:
+    name: Audit release dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit the release lockfile
+        run: cargo audit --deny warnings
+
+  namespace:
+    name: Firewall namespace test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Install firewall tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nftables iptables
+      - run: bash tests/firewall-namespace.sh
+
+  # ---------------------------------------------------------------- builds
+  # Static musl binaries for every supported CPU (32- and 64-bit).
   build:
     name: Build ${{ matrix.arch }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -34,7 +114,7 @@ jobs:
       # (rust-lld). Set it PER TARGET (not via global RUSTFLAGS) so it never
       # touches host build-scripts / proc-macros / `cargo install`, which must
       # link with the default host linker. This yields fully static binaries for
-      # every CPU without Docker/QEMU or an external cross-gcc.
+      # every CPU without Docker or an external cross-gcc.
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
       CARGO_TARGET_I686_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
@@ -42,13 +122,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate tag format
-        run: |
-          echo "$GITHUB_REF_NAME" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            || { echo "::error::tag '$GITHUB_REF_NAME' is not vMAJOR.MINOR.PATCH"; exit 1; }
-          package_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
-          test "$package_version" = "${GITHUB_REF_NAME#v}" \
-            || { echo "::error::tag and Cargo.toml version differ"; exit 1; }
+      - name: Validate tag and package version
+        run: bash scripts/check-version.sh --tag "$GITHUB_REF_NAME"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -66,38 +141,25 @@ jobs:
       - name: Build static binaries (musl, with embedded SBOM)
         run: cargo auditable build --release --locked --target ${{ matrix.target }}
 
-      # Shrink the shipped static binaries (~60% smaller on disk). UPX packs all
-      # of these target arches cross-arch from the x86_64 runner; the resulting
-      # x86_64 binary is re-smoked here (the others cannot run on this host).
+      # Shrink the shipped static binaries (~60% smaller on disk). Every packed
+      # binary is executed for its architecture in the `smoke` job (QEMU).
       - name: Compress binaries with UPX
         env:
-          ARCH: ${{ matrix.arch }}
           TARGET: ${{ matrix.target }}
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends upx-ucl
           upx --best --lzma "target/${TARGET}/release/wg-tui" "target/${TARGET}/release/wg-helper"
-          if [ "$ARCH" = "x86_64" ]; then
-            "target/${TARGET}/release/wg-tui" --version | grep -q '^wg-tui '
-            "target/${TARGET}/release/wg-tui" --help >/dev/null
-          fi
+          upx -t "target/${TARGET}/release/wg-tui" "target/${TARGET}/release/wg-helper"
 
+      # Deterministic archive (fixed modes, root ownership, sorted entries,
+      # commit time as mtime) so scripts/verify-release.sh can pin it exactly.
       - name: Stage tarball
         env:
           REF: ${{ github.ref_name }}
           ARCH: ${{ matrix.arch }}
           TARGET: ${{ matrix.target }}
-        run: |
-          V="${REF#v}"
-          D="wireguard-tui-${V}-${ARCH}-linux"
-          mkdir -p "$D"
-          cp "target/${TARGET}/release/wg-tui" "$D/"
-          cp "target/${TARGET}/release/wg-helper" "$D/"
-          mkdir -p "$D/packaging"
-          cp packaging/49-wireguard-tui.rules packaging/wireguard-tui.desktop packaging/wireguard-tui.svg "$D/packaging/"
-          cp install.sh README.md LICENSE "$D/"
-          tar -czf "${D}.tar.gz" "$D"
-          test -s "${D}.tar.gz"
+        run: bash scripts/stage-tarball.sh "${REF#v}" "$ARCH" "target/${TARGET}/release"
 
       - name: Upload tarball
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -106,71 +168,38 @@ jobs:
           path: wireguard-tui-*-${{ matrix.arch }}-linux.tar.gz
           if-no-files-found: error
 
-  # ---- native x86_64 build: full test suite + shell checks + .deb ----
+  # Native x86_64 build packaged as a .deb.
   deb:
-    name: Test & build .deb (amd64)
+    name: Build .deb (amd64)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Validate tag and package version
-        run: |
-          echo "$GITHUB_REF_NAME" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            || { echo "::error::invalid release tag"; exit 1; }
-          package_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
-          test "$package_version" = "${GITHUB_REF_NAME#v}" \
-            || { echo "::error::tag and Cargo.toml version differ"; exit 1; }
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-
-      - name: Audit release dependencies
-        run: |
-          cargo install cargo-audit --locked
-          cargo audit --deny warnings
-
+        run: bash scripts/check-version.sh --tag "$GITHUB_REF_NAME"
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Install cargo-auditable
         run: cargo install cargo-auditable --version =0.7.7 --locked
-
-      - name: Build + test
+      - name: Build
+        run: cargo auditable build --release --locked
+      - name: CLI contract before packing
         run: |
-          cargo auditable build --release --locked
-          cargo test --locked
-
-      - name: Smoke and shell validation
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends shellcheck
-          ./target/release/wg-tui --version | grep -q '^wg-tui '
-          ./target/release/wg-tui --help >/dev/null
-          out="$(./target/release/wg-tui doctor)" && rc=0 || rc=$?
-          echo "$out" | grep -q 'WireGuard tools'
-          test "$rc" -le 2
-          bash -n install.sh tests/helper-validation.sh tests/installer-sanity.sh
-          shellcheck -S warning install.sh tests/helper-validation.sh tests/installer-sanity.sh
           bash tests/helper-validation.sh target/release/wg-helper
-          bash tests/installer-sanity.sh
-
+          bash tests/release-regression.sh --version "${GITHUB_REF_NAME#v}" target/release/wg-tui target/release/wg-helper
       # Shrink the shipped binaries before packaging the .deb (~60% smaller on
-      # disk). Re-smoked so a broken pack fails the release rather than shipping.
+      # disk). Re-checked so a broken pack fails the release rather than shipping.
       - name: Compress binaries with UPX
         run: |
+          sudo apt-get update
           sudo apt-get install -y --no-install-recommends upx-ucl
           upx --best --lzma target/release/wg-tui target/release/wg-helper
-          ./target/release/wg-tui --version | grep -q '^wg-tui '
-          ./target/release/wg-tui --help >/dev/null
-
+          bash tests/release-regression.sh --version "${GITHUB_REF_NAME#v}" target/release/wg-tui target/release/wg-helper
       - name: Build .deb
         run: |
           cargo install cargo-deb --version =3.8.0 --locked
           cargo deb --no-build --no-strip || cargo deb
           cp target/debian/*.deb .   # mandatory: fail the release if none exists
-
       - name: Upload .deb
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -178,29 +207,104 @@ jobs:
           path: "*.deb"
           if-no-files-found: error
 
-  # ---- collect, checksum, SIGN (fail-closed), publish ----
-  release:
-    name: Publish release
-    needs: [build, deb]
+  # ---------------------------------------------------------------- binary tests
+  # Run every shipped (UPX-packed, static) binary for its own architecture:
+  # i686 natively, aarch64/armv7 through QEMU user-mode emulation (binfmt).
+  smoke:
+    name: Smoke ${{ matrix.arch }} (QEMU)
+    needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # elevated ONLY for the publishing job
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, qemu: "" }
+          - { arch: i686, qemu: "" }
+          - { arch: aarch64, qemu: arm64 }
+          - { arch: armv7, qemu: arm }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up QEMU user-mode emulation
+        if: matrix.qemu != ''
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: ${{ matrix.qemu }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tarball-${{ matrix.arch }}
+          path: dist
+      - name: Unpack
+        id: unpack
+        env:
+          ARCH: ${{ matrix.arch }}
+          REF: ${{ github.ref_name }}
+        run: |
+          tar -xzf "dist/wireguard-tui-${REF#v}-${ARCH}-linux.tar.gz" -C dist
+          dir="dist/wireguard-tui-${REF#v}-${ARCH}-linux"
+          file "$dir/wg-tui" "$dir/wg-helper"
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+      - name: --version / --help
+        env:
+          DIR: ${{ steps.unpack.outputs.dir }}
+          REF: ${{ github.ref_name }}
+        run: |
+          test "$("$DIR/wg-tui" --version)" = "wg-tui ${REF#v}"
+          "$DIR/wg-tui" --help | grep -q '^wg-tui '
+      - name: Helper argument validation
+        run: bash tests/helper-validation.sh "${{ steps.unpack.outputs.dir }}/wg-helper"
+      - name: Release regression (CLI contract)
+        env:
+          DIR: ${{ steps.unpack.outputs.dir }}
+          REF: ${{ github.ref_name }}
+        run: bash tests/release-regression.sh --version "${REF#v}" "$DIR/wg-tui" "$DIR/wg-helper"
 
+  # WireGuard + kill switch + live config update with the shipped helper.
+  e2e:
+    name: Kill switch e2e
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tarball-x86_64
+          path: dist
+      - name: Install WireGuard and firewall tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            wireguard-tools nftables iptables iproute2 iputils-ping
+          sudo modprobe wireguard
+      - name: End-to-end test with the release helper
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          tar -xzf "dist/wireguard-tui-${REF#v}-x86_64-linux.tar.gz" -C dist
+          test -f tests/killswitch-e2e.sh || { echo "::error::tests/killswitch-e2e.sh is missing"; exit 1; }
+          sudo bash tests/killswitch-e2e.sh "dist/wireguard-tui-${REF#v}-x86_64-linux/wg-helper"
+
+  # ---------------------------------------------------------------- sign & verify
+  sign:
+    name: Checksums & signature
+    needs: [build, deb]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Download all build artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
-
       - name: Collect artifacts
         run: |
           mkdir -p out
           find dist -type f \( -name '*.tar.gz' -o -name '*.deb' \) -exec cp -v {} out/ \;
           cp minisign.pub out/
           ls -l out
-
       - name: Generate checksums
         working-directory: out
         run: |
@@ -211,7 +315,6 @@ jobs:
           fi
           sha256sum "${artifacts[@]}" | tee SHA256SUMS
           test -s SHA256SUMS
-
       - name: Sign SHA256SUMS with minisign (fail-closed)
         working-directory: out
         env:
@@ -228,10 +331,67 @@ jobs:
           printf '%s\n' "$MINISIGN_KEY" > minisign.key
           minisign -S -s minisign.key -m SHA256SUMS -t "wireguard-tui ${REF#v}"
           rm -f minisign.key
-          echo "Verifying signature with the committed public key…"
           minisign -Vm SHA256SUMS -p minisign.pub
           test -s SHA256SUMS.minisig
+      - name: Upload signed release set
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-signed
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
 
+  verify:
+    name: Verify release artifacts
+    needs: sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up QEMU user-mode emulation
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64,arm
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-signed
+          path: out
+      - name: Install verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends minisign upx-ucl dpkg file
+      # Signature against the COMMITTED key, checksums, archive contents and
+      # modes, static linkage, architecture, embedded version == tag, .deb
+      # metadata, and the CLI contract of every architecture's binaries.
+      - name: scripts/verify-release.sh --strict --run
+        run: bash scripts/verify-release.sh --strict --run --tag "$GITHUB_REF_NAME" out
+
+  # ---------------------------------------------------------------- publish
+  publish:
+    name: Publish release
+    needs: [version, lint, test, audit, namespace, build, deb, smoke, e2e, sign, verify]
+    # The default `success()` condition already skips publishing unless every
+    # needed job succeeded; the explicit check below also refuses to run if a
+    # future edit loosens this condition.
+    if: ${{ success() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # elevated ONLY for the publishing job
+    steps:
+      - name: Every gate job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -e 'to_entries | length == 11 and all(.value.result == "success")' >/dev/null \
+            || { echo "::error::release gate not satisfied"; echo "$NEEDS" | jq .; exit 1; }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-signed
+          path: out
+      - name: Publish exactly the verified bytes
+        working-directory: out
+        run: sha256sum -c --strict SHA256SUMS
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:

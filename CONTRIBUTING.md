@@ -12,8 +12,10 @@ cargo build --release --locked
 cargo run --release --locked --bin wg-tui -- --help
 ```
 
-Use current stable Rust (edition 2024), a C linker/toolchain, and Linux for
-runtime integration checks. The TUI has no graphical toolkit requirement.
+Use Rust 1.88 or newer (edition 2024; CI's "MSRV" job enforces the minimum,
+current stable is recommended), a C linker/toolchain, and Linux for runtime
+integration checks. `scripts/dev-setup.sh` checks all of this and prints the
+install command for anything missing. The TUI has no graphical toolkit requirement.
 `wg` and `wg-quick` come from `wireguard-tools`; an editor, helper authorization,
 and suitable DNS/firewall tools are runtime concerns. `./install.sh` installs
 these prerequisites and the built app/helper; see [README.md](README.md).
@@ -30,15 +32,16 @@ those hosts supported WireGuard management targets.
 These match the CI quality gates:
 
 ```sh
+scripts/dev-setup.sh
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo build --release --locked
-bash -n install.sh
-bash -n tests/helper-validation.sh
-bash -n tests/installer-sanity.sh
-shellcheck -S warning install.sh tests/helper-validation.sh tests/installer-sanity.sh
+scripts/check-version.sh
+scripts/gen-fixtures.sh --check
+shellcheck -S warning install.sh scripts/*.sh tests/*.sh
 bash tests/helper-validation.sh target/release/wg-helper
+bash tests/release-regression.sh target/release/wg-tui target/release/wg-helper
 bash tests/installer-sanity.sh
 target/release/wg-tui --version
 target/release/wg-tui --help
@@ -123,6 +126,105 @@ Debug builds accept `WG_HELPER` directly. Release builds require
 write bits, and trusted directory ancestry. This override does not create a sudoers/polkit grant;
 installed-path authorization still applies. Prefer installed standard paths for
 normal use.
+
+## Testing infrastructure
+
+### Property tests and fixtures
+
+`tests/prop_*.rs` are dependency-free property tests. The binaries have no
+library crate, so each test pulls the module it checks straight from `src/`
+with `#[path = "../src/config.rs"] mod config;` (the helper uses the same
+technique). A small deterministic PRNG in `tests/prop_support/` produces the
+inputs; a failure prints the seed and case to replay it:
+
+```sh
+cargo test --locked --test 'prop_*'                       # default 2000 cases each
+PROP_CASES=50000 cargo test --locked --release --test prop_config
+PROP_SEED=0x1234 cargo test --locked --test prop_secrets  # another sequence
+```
+
+Invariants covered: parsing and validation never panic on arbitrary or
+mutated input; anything accepted satisfies what its consumers rely on (valid
+keys, peers with AllowedIPs, well-formed endpoints); random wg-quick
+configs are accepted and parse/render round-trips are stable; LF and CRLF
+give the same verdict; no PrivateKey/PresharedKey value survives redaction
+in any casing, spacing or log-prefix form, while other lines stay unchanged;
+every `src/create.rs` template validates once completed; sanitized import
+names are always valid and idempotent; and the frontend name validator agrees
+with the built `wg-helper` on every random name.
+
+`tests/fixtures/configs/` holds **fake** sample configs (`valid/`, `hooks/`,
+`invalid/`) for tests, fuzzing and manual experiments. Keys are derived from
+SHA-256 of fixed labels. Never add a real config there; change
+`scripts/gen-fixtures.sh` and rerun it instead. CI runs
+`scripts/gen-fixtures.sh --check` to prove the files match the script output.
+
+### Fuzzing
+
+`fuzz/` is a standalone cargo-fuzz crate (own workspace and lockfile) with
+targets `config_validate`, `redact`, `tunnel_names` and `import_preflight`.
+They include the same `src/` modules by path. Running them needs a nightly
+toolchain and cargo-fuzz:
+
+```sh
+rustup toolchain install nightly
+cargo install cargo-fuzz --locked
+mkdir -p fuzz/corpus/config_validate
+cp tests/fixtures/configs/*/*.conf fuzz/corpus/config_validate/
+cargo +nightly fuzz run config_validate -- -max_total_time=300
+```
+
+CI checks that the targets compile on stable for every pull request ("Fuzz
+crate check") and fuzzes each target for five minutes nightly
+(`.github/workflows/fuzz.yml`, crash reproducers are uploaded as artifacts).
+The ZIP backup and QR container parsers are private functions in the
+backend and are not reachable without a library crate; the fuzz targets cover
+the validation every imported config passes through.
+
+### Mutation testing
+
+`cargo mutants` checks that the tests notice changes to validation and
+security-critical code: `src/validation.rs`, `src/config.rs`,
+`src/secrets.rs` and the helper under `src/bin/wg-helper/`. It runs weekly
+and on demand (`.github/workflows/mutants.yml`, four shards, report in the job
+summary and the `mutants-shard-*` artifacts). Locally:
+
+```sh
+cargo install cargo-mutants --locked
+cargo mutants --timeout 300 --file src/validation.rs     # one file, quick
+cargo mutants --list --file 'src/bin/wg-helper/**/*.rs'  # preview the helper's mutants
+```
+
+A "missed" mutant names a change no test detects. Add a test that fails for
+it, or mark the function `#[mutants::skip]` with a comment explaining why the
+mutation is equivalent. Never run mutation testing of the helper on a host
+whose firewall or tunnels matter.
+
+### Release checks
+
+| Script | Purpose |
+|---|---|
+| `scripts/check-version.sh [--tag vX.Y.Z]` | Cargo.toml, Cargo.lock, top CHANGELOG release, packaging versions (and tag) agree |
+| `tests/release-regression.sh APP HELPER` | Pins the CLI contract: `--version`/`--help` format, exit codes, helper rejections |
+| `scripts/stage-tarball.sh VERSION ARCH [DIR]` | Builds a reproducible release tarball (fixed modes, root ownership) |
+| `scripts/verify-release.sh --tag vX.Y.Z DIR` | Verifies signature, checksums, archive contents, linkage and embedded version |
+| `scripts/apply-repo-settings.sh [--dry-run] OWNER/REPO` | Branch rulesets and repository policy ([docs/REPO_SETTINGS.md](docs/REPO_SETTINGS.md)) |
+
+Verify a published release yourself with
+`scripts/verify-release.sh --tag vX.Y.Z --download` (needs `gh`, `minisign`,
+`python3`; `upx` and `dpkg-deb` enable the binary and package checks).
+Bumping the version means updating Cargo.toml, Cargo.lock (`cargo update -w`),
+the CHANGELOG heading and the four packaging recipes together; CI's "Version
+consistency" check fails otherwise.
+
+### Onboarding test
+
+`bash tests/dev-onboarding.sh` clones the repository into a temporary
+directory and runs `scripts/dev-setup.sh` plus every command in the "Required
+checks" block above, then fails if any command fails or leaves the checkout
+dirty. Use `--from-worktree` to include uncommitted changes. It runs in CI
+(`.github/workflows/onboarding.yml`) whenever this file, the scripts or the
+build configuration change, and weekly, so these instructions stay accurate.
 
 ## Audit regression expectations
 

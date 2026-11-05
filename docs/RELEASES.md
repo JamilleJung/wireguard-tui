@@ -41,6 +41,22 @@ stop. The attached `minisign.pub` is a convenient copy, but verify that it
 matches a previously trusted/committed key before using `-p minisign.pub`.
 Checksums alone cannot authenticate a release.
 
+From a checkout of this repository, `scripts/verify-release.sh` runs the same
+verification the release workflow runs before publishing, against the
+committed key (never the copy shipped beside the artifacts):
+
+```sh
+scripts/verify-release.sh --tag v1.9.3 --download            # fetch with gh, then verify
+scripts/verify-release.sh --tag v1.9.3 ~/Downloads/wg-tui    # an existing download
+```
+
+It checks the signature and trusted comment, every checksum, that each
+tarball holds exactly the expected files and modes, and that each binary is
+UPX-packed, static, built for its architecture and embeds this version (with
+`upx` installed), plus the `.deb` metadata (with `dpkg-deb`). Releases published
+before this check existed (1.9.3 and earlier) report non-root tar ownership as a warning; `--strict` turns warnings
+into failures.
+
 For a verified tarball, extract it and run its installer as your normal user:
 
 ```sh
@@ -93,37 +109,52 @@ package manager for packaged installs; the updater uses the source installer's
 
 ## CI and release pipeline
 
-The checked-in [CI workflow](../.github/workflows/ci.yml) runs formatting,
-clippy, locked tests/build, CLI doctor/help/version smoke checks, shellcheck,
-helper negative checks and installer sanity checks. Correct commands include:
-
-```sh
-cargo fmt --all -- --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
-cargo build --release --locked
-cargo audit --deny warnings
-```
+Every pull request to `main` must pass the [CI workflow](../.github/workflows/ci.yml)
+and the Dependabot-only compatibility job; the exact required checks and the
+branch rules are in [REPO_SETTINGS.md](REPO_SETTINGS.md). CI runs rustfmt,
+clippy, unit/property/fixture tests, a release build with CLI and `doctor`
+smoke checks and the CLI contract test (`tests/release-regression.sh`),
+ShellCheck of every script, installer sanity, the firewall network-namespace
+test, the WireGuard + kill switch end-to-end test, `cargo audit`, version
+consistency (`scripts/check-version.sh`), the MSRV build and a fuzz-crate
+build. Coverage (`cargo llvm-cov`, lcov artifact and job summary) is
+informational. Scheduled workflows fuzz nightly, run mutation testing weekly,
+and re-test the newest compatible dependencies weekly.
 
 The [release workflow](../.github/workflows/release.yml) is triggered by a
-`vMAJOR.MINOR.PATCH` tag, and validates that it matches Cargo.toml. Manual
-workflow dispatch must also target a valid version tag. It:
+`vMAJOR.MINOR.PATCH` tag. A manual dispatch must also target a version tag.
+Its publish job **depends on every gate below and fails closed**: a failed,
+skipped or cancelled gate prevents publication, and the publish job
+re-checks that all eleven gates reported success.
 
-1. Builds four musl targets with pinned cargo-auditable and per-target rust-lld.
-2. Audits dependencies, runs tests/smoke/shell checks, and builds the mandatory
-   native amd64 `.deb` using pinned cargo-deb.
-3. UPX-compresses binaries, stages tarballs with installer assets, and requires
-   each expected upload to exist.
-4. Collects the artifacts, generates a non-empty checksum manifest, signs it
-   with `MINISIGN_KEY`, and verifies with the committed public key.
-5. Publishes only after all build/package jobs succeed; signing failure or a
-   missing key stops publication. Only the publishing job has write permission.
+| Gate | What it checks |
+|---|---|
+| Version consistency | tag == Cargo.toml == Cargo.lock == top CHANGELOG release == PKGBUILD/RPM/APKBUILD/Void versions |
+| rustfmt & clippy | formatting, `clippy -D warnings`, ShellCheck |
+| Tests | fixtures, unit/property/fixture tests (20 000 property cases), installer sanity |
+| Audit release dependencies | `cargo audit --deny warnings` |
+| Firewall namespace test | `tests/firewall-namespace.sh` |
+| Build (x86_64, i686, aarch64, armv7) | static musl builds with pinned cargo-auditable and per-target rust-lld, UPX, reproducible tarballs (`scripts/stage-tarball.sh`: fixed modes, root ownership, sorted entries, commit mtime) |
+| Build .deb (amd64) | native build, CLI contract before and after UPX, pinned cargo-deb |
+| Smoke (QEMU) per architecture | each packed static binary runs for its CPU (i686 natively, aarch64/armv7 under QEMU user-mode emulation): `--version` equals the tag, `--help`, `tests/helper-validation.sh`, `tests/release-regression.sh` |
+| Kill switch e2e | `tests/killswitch-e2e.sh` with the shipped x86_64 helper |
+| Checksums & signature | SHA256SUMS signed with `MINISIGN_KEY` in the `release` environment, verified against the committed key |
+| Verify release artifacts | `scripts/verify-release.sh --strict --run`: signature, checksums, exact archive contents/modes/ownership, static linkage (no ELF interpreter or needed libraries), architecture, embedded package version == tag, `.deb` fields and files, CLI contract of all four architectures |
 
-CI and release audit currently pass without advisory exceptions. That checks
-known advisories, not every possible bug. SHA-pinned Actions and version-pinned
-build tools improve traceability; no bit-for-bit reproducibility guarantee is
-made. The x86_64 output is smoke-tested on its runner; that does not establish
-runtime testing on every supported CPU/distro combination.
+Publication uploads exactly the verified files after re-checking SHA256SUMS.
+Only the publishing job has write permission. Release tags are protected
+against deletion and moves. Audit currently passes without advisory
+exceptions; that checks known advisories, not every possible bug. SHA-pinned
+Actions and version-pinned build tools improve traceability, and tarballs
+are byte-reproducible for identical binaries; the compiled binaries
+themselves carry no bit-for-bit reproducibility guarantee.
+
+Before tagging, run the same release checks locally where possible:
+
+```sh
+scripts/check-version.sh --tag vX.Y.Z
+bash tests/release-regression.sh --version X.Y.Z target/release/wg-tui target/release/wg-helper
+```
 
 ## Inspecting embedded dependency metadata
 
