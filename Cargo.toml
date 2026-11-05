@@ -2,6 +2,7 @@
 name = "wireguard-tui"
 version = "1.9.3"
 edition = "2024"
+rust-version = "1.88"
 description = "A native Linux terminal UI for managing plain WireGuard tunnels with wg and wg-quick."
 license = "MIT"
 repository = "https://github.com/JamilleJung/wireguard-tui"
@@ -14,7 +15,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "wg-helper"
-path = "src/bin/wg-helper.rs"
+path = "src/bin/wg-helper/main.rs"
 
 [dependencies]
 ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
@@ -41,8 +42,9 @@ license-file = ["LICENSE", "0"]
 section = "net"
 priority = "optional"
 extended-description = "A native Linux terminal UI for managing plain WireGuard tunnels through wg and wg-quick: tunnel list, live status, activate/deactivate, import, editing, key generation, QR display, and a small privileged helper."
-depends = "$auto, wireguard-tools, pkexec | polkit-1 | policykit-1"
-recommends = "wl-clipboard | xclip | xsel"
+depends = "$auto, wireguard-tools, iproute2, pkexec | polkit-1 | policykit-1, nftables | iptables"
+recommends = "wl-clipboard | xclip | xsel, minisign, openresolv | systemd-resolved"
+maintainer-scripts = "packaging/debian/"
 assets = [
     ["target/release/wg-tui", "usr/bin/", "755"],
     ["target/release/wg-helper", "usr/lib/wireguard-tui/wg-helper", "755"],
