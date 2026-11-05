@@ -4,6 +4,130 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security and networking
+
+- Kill switch rules now live in a dedicated nftables table
+  (`inet wg_helper_killswitch`) or a dedicated iptables chain
+  (`WGH-KILLSWITCH`) instead of the shared `inet filter` table / `OUTPUT`
+  chain. The helper never edits a table it does not own, so firewalld, distro
+  rulesets and administrator rules are left alone.
+- Kill switch exceptions no longer bypass existing deny rules: nftables
+  `accept` only ends the kill switch's own chain, and the iptables chain
+  `RETURN`s allowed traffic to `OUTPUT` instead of accepting it. The iptables
+  jump must stay the first `OUTPUT` rule.
+- IPv6 Neighbor Discovery (router/neighbor solicitation, neighbor
+  advertisement, hop limit 255), MLDv2 reports and DHCP client traffic are
+  allowed. Previously an IPv6 endpoint became unreachable once its neighbor
+  cache entry expired.
+- Live config updates (`sync`) no longer reset the runtime fwmark: `wg
+  syncconf` resets interface fields missing from the file, which dropped the
+  mark wg-quick set and broke both policy routing and the kill switch. The
+  helper now carries the running fwmark and listen port into the synced
+  config, refuses a config that changes `FwMark` on a running tunnel
+  (reconnect to apply it), verifies the mark afterwards and repairs the kill
+  switch if needed.
+- Kill switch status is now `enabled`, `disabled`, `missing` or `mismatch`.
+  `enabled` requires the rules' mark to equal the interface's runtime fwmark.
+  A switch lost to a firewall reload is `missing` (the request is recorded
+  under `/run/wg-helper`), stale rules are `mismatch`, and the new
+  `wg-helper killswitch-repair` verb rebuilds them; the app runs it
+  automatically, once per loss with backoff. A switch built by 1.9.3 or older
+  reports `mismatch` and is rebuilt in the new layout.
+- Helper actions check the resulting state: `up` fails unless the interface
+  is up, timed-out `up`/`down` report the state observed afterwards, `save`
+  reads the file back, `rename`/`delete` and start-on-boot changes are
+  verified.
+- The helper writes one structured, redacted `key=value` journal record per
+  mutating verb, including its result.
+
+### Reliability and data integrity
+
+- Config edits are never lost: a draft that fails validation or saving offers
+  Retry / Re-edit / Discard, or can be kept for later (`E`).
+- A failed live sync after saving says the saved file and the running
+  interface differ and offers retry, reconnect or keep as is.
+- A backup restore that fails partway rolls back what it already wrote and
+  reports each tunnel.
+- Connect, disconnect, rename, delete, start-on-boot and kill switch changes
+  are checked against the real state; helper timeouts are re-checked instead
+  of assumed, and overlapping operations are refused.
+- Config, QR and backup imports share one safe file-open routine and refuse
+  pipes, sockets, devices and directories without hanging.
+
+### Health monitoring and interface
+
+- Per-peer connection health: Healthy, Connecting, No traffic, Idle,
+  Handshake stale, Connection failed. An old handshake on an idle tunnel is no
+  longer reported as broken; the system clock is only named as a possible
+  cause when handshakes actually fail.
+- Kill switch shows On / Off / MISSING / MISMATCH / Unknown.
+- Scrollable detail pane that follows the focused field, peer navigation
+  (`]`/`[`), scrollable key map, and graceful layouts down to tiny terminals.
+- Themes: `--theme` / `WG_TUI_THEME` (`default`, `high-contrast`, `ascii`) and
+  `NO_COLOR`.
+- Optional redacted debug log (`WG_TUI_LOG=path`, `--debug`).
+
+### Installer, updates and packaging
+
+- The installer records how it installed the app (`install-manifest`). Re-runs
+  and in-app updates keep the same prefix and polkit/sudoers mode instead of
+  falling back to sudoers.
+- The in-app updater refuses to replace copies installed by apt, dnf, pacman,
+  AUR, apk, xbps or `cargo install` and shows the right update command.
+- The installer refuses to add a second copy next to a distribution package
+  (`--force` overrides); packages warn about a leftover `/usr/local` copy.
+- A failed or interrupted install restores the previous binaries, grants and
+  `wireguard` group setup.
+- On SELinux systems the installer labels the helper so sudo/pkexec can run
+  it and checks that it runs; a helper that cannot run (SELinux denial, noexec
+  mount, wrong CPU or C library) gives a clear error with fix commands.
+- Arch: no more partial-upgrade-prone `pacman -Sy`; only missing packages are
+  installed with `pacman -S --needed`.
+- Dependency fixes: iproute2 and nftables/iptables added everywhere; Debian 13
+  and Ubuntu 24.04 get a working resolver package (`systemd-resolved`).
+- New `--binaries=DIR` installs locally built binaries; `uninstall` removes
+  everything the installer added.
+- AUR, RPM, Alpine and Void recipes are ready for repository submission:
+  checksums synced by `packaging/update-checksums.sh`, offline builds, tests
+  in `check()`/`%check`, licenses installed, `.SRCINFO` generated. The Void
+  template's build path is fixed.
+
+### CI, releases and tests
+
+- CI is split into separate required checks, adding the kill switch
+  end-to-end test (real WireGuard tunnels in network namespaces, IPv4 and IPv6
+  endpoints, nftables and iptables), the firewall namespace test, an MSRV
+  build, version consistency, a CLI contract test, coverage, a fuzz-crate
+  build and latest-compatible-dependency tests.
+- An installation matrix installs, upgrades, rolls back and uninstalls on
+  Debian, Ubuntu, Fedora, Arch, Alpine and Void.
+- Publishing a release is gated on every check, including per-architecture
+  smoke tests under QEMU and automated verification of signatures, checksums,
+  archive contents and embedded versions (`scripts/verify-release.sh`).
+  Tarballs are reproducible and root-owned.
+- Property tests with deterministic fixtures, cargo-fuzz targets with a
+  nightly run, and weekly mutation testing of validation and helper code.
+- Dependabot updates are grouped by risk; auto-merge is limited to patch and
+  minor updates of CI and development dependencies and still waits for every
+  required check.
+- Repository policy is scripted (`scripts/apply-repo-settings.sh`,
+  `docs/REPO_SETTINGS.md`): protected `main`, required up-to-date checks,
+  CODEOWNERS and review for security and networking paths.
+
+### Architecture and documentation
+
+- The helper is split into modules (process, filesystem, runtime, commands,
+  firewall with separate nftables and iptables backends, logging).
+- `src/main.rs` is split into state, input/keymap, actions, operations,
+  editor and `ui/` rendering; `src/backend.rs` into helper, backup, QR,
+  health and diagnostics modules, with typed errors on the helper path.
+- New `docs/ARCHITECTURE.md` (privilege boundary, modules, data flows) and
+  `docs/RELEASE_CHECKLIST.md`; README, SECURITY, TUTORIAL, DISTROS and help
+  updated to match the current behaviour. Minimum supported Rust version is
+  declared in `Cargo.toml`.
+
 ## [1.9.3] - 2026-11-02
 
 ### Fixed
