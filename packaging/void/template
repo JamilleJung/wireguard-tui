@@ -1,17 +1,22 @@
 # Template file for 'wireguard-tui'
 pkgname=wireguard-tui
-version=1.9.3
+version=1.10.0
 revision=1
 build_style=cargo
+# xbps-src builds in a masterdir owned by the build user, so /bin/sh is not
+# root-owned there; this test asserts that a root-owned /bin/sh is trusted.
+make_check_args="-- --skip helper_discovery_requires_a_trusted_executable"
 hostmakedepends="pkg-config"
 depends="wireguard-tools iproute2 nftables polkit"
+# The helper's process tests spawn python3.
+checkdepends="python3"
 short_desc="Terminal UI for managing WireGuard tunnels"
 maintainer="jamillejung <izeystudio@gmail.com>"
 license="MIT"
 homepage="https://github.com/JamilleJung/wireguard-tui"
 changelog="https://raw.githubusercontent.com/JamilleJung/wireguard-tui/main/CHANGELOG.md"
 distfiles="https://github.com/JamilleJung/wireguard-tui/archive/refs/tags/v${version}.tar.gz"
-checksum=afe5cf5f08294b808da675c54c0131e2808a310f5b17317ef5ca6f0346b8930a
+checksum=@CHECKSUM@
 
 # The cargo build style's do_install would put wg-helper in /usr/bin.
 do_install() {

@@ -1,6 +1,6 @@
 # Maintainer: jamillejung <izeystudio@gmail.com>
 pkgname=wireguard-tui
-pkgver=1.9.3
+pkgver=1.10.0
 pkgrel=1
 pkgdesc="Terminal UI for managing WireGuard tunnels with wg and wg-quick"
 arch=('x86_64' 'aarch64')
@@ -10,8 +10,10 @@ license=('MIT')
 # kill switch uses nftables, falling back to iptables (pulled in by iproute2).
 # Passwordless polkit access also needs administrator-managed membership in
 # the wireguard group and an active local session.
-depends=('glibc' 'libgcc' 'wireguard-tools' 'iproute2' 'polkit')
+depends=('glibc' 'libgcc' 'wireguard-tools' 'iproute2' 'polkit' 'hicolor-icon-theme')
 makedepends=('cargo')
+# The helper's process tests spawn python3.
+checkdepends=('python')
 optdepends=('nftables: kill switch (preferred over the iptables fallback)'
             'openresolv: resolvconf for configs with a DNS line'
             'sudo: sudoers-based helper authorization instead of polkit'
@@ -19,8 +21,11 @@ optdepends=('nftables: kill switch (preferred over the iptables fallback)'
             'xclip: copy to the X11 clipboard'
             'minisign: verify release signatures')
 install=wireguard-tui.install
+# Cargo's release profile already strips the binaries; a debug package would
+# hold only dangling build-id links.
+options=('!debug')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('afe5cf5f08294b808da675c54c0131e2808a310f5b17317ef5ca6f0346b8930a')
+sha256sums=('SKIP')
 
 prepare() {
     cd "$pkgname-$pkgver"
