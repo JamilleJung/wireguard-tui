@@ -609,13 +609,20 @@ pub fn system_check() -> Report {
         critical: false,
     });
 
-    // A wrong system clock makes a WireGuard server reject handshakes (its
-    // TAI64N anti-replay), so the tunnel comes "up" but silently never connects.
-    let (clock_status, clock_detail, clock_fix) = match clock_synced() {
+    checks.push(clock_check(clock_synced()));
+
+    Report { checks }
+}
+
+/// The clock row. `doctor` cannot see whether handshakes are failing, so an
+/// unsynced clock is reported as a risk and a *possible* cause only - never as
+/// the cause of a connection problem.
+fn clock_check(synced: Option<bool>) -> Check {
+    let (status, detail, fix) = match synced {
         Some(true) => (Status::Ok, "system clock is NTP-synced".to_string(), None),
         Some(false) => (
             Status::Warning,
-            "clock not NTP-synced — can break WireGuard handshakes (server anti-replay)"
+            "clock not NTP-synced — if handshakes fail, a wrong clock is one possible cause (server anti-replay)"
                 .to_string(),
             Some("enable NTP: timedatectl set-ntp true (or install chrony)".to_string()),
         ),
@@ -625,19 +632,30 @@ pub fn system_check() -> Report {
             None,
         ),
     };
-    checks.push(Check {
+    Check {
         name: "System clock (NTP)",
-        status: clock_status,
-        detail: clock_detail,
-        fix: clock_fix,
+        status,
+        detail,
+        fix,
         critical: false,
-    });
-
-    Report { checks }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn unsynced_clock_is_only_a_possible_cause() {
+        let check = super::clock_check(Some(false));
+        assert!(matches!(check.status, super::Status::Warning));
+        assert!(check.detail.contains("possible cause"));
+        assert!(!check.detail.contains("can break"));
+        assert!(!check.critical);
+        assert!(matches!(
+            super::clock_check(Some(true)).status,
+            super::Status::Ok
+        ));
+    }
+
     use super::*;
     use std::path::Path;
 

@@ -71,14 +71,21 @@ does not toggle anything.
 
 - `i`: import a config or QR image. `n`: generate a preset and edit raw text.
 - Up/Down: select a tunnel. `Enter`/`a`: activate/deactivate.
-- `h`/`l`: choose a detail field. `y`: copy it.
+- `h`/`l`: choose a detail field. `y`: copy it. `]`/`[`: jump to the next or
+  previous peer. PgDn/PgUp: scroll the detail pane (it also follows the
+  focused field).
 - `e`: edit in $VISUAL, then $EDITOR, then nano. Quoted editor arguments work
   without shell expansion; a private draft directory is cleaned on return.
   `+`: add a peer in the editor.
 - `g`: generate keys. `c`: running config. `p`: save live state.
 - `s`: systemd start-on-boot. `Q`: QR. `R`: rename. `d`: delete. `x`: export all.
-- `K`: temporary host-output kill switch (one managed tunnel at a time). `D`: connection diagnostics.
+- `K`: temporary host-output kill switch (one managed tunnel at a time); when
+  it is on but not in force, `K` offers repair or turning it off. `D`:
+  connection diagnostics.
 - `Tab`: Log. `B`: Backup manager. `w`: changelog. `A`: About. `q`/Esc: quit.
+- `?`: the key map. It scrolls with Up/Down, PgUp/PgDn and `g`/`G`; any other
+  key closes it.
+- `E`: reopen an unsaved draft you set aside (see below).
 
 On the Log tab, `y`/Enter copies the current line or selection, `v` starts a
 selection, `Y` copies the filtered log, `/` filters, `t` selects this tunnel,
@@ -94,20 +101,60 @@ must allow OSC 52 when that fallback is used; a successful remote clipboard
 helper can target the remote display instead.
 
 Editing an active tunnel attempts WireGuard-level live sync. Address, DNS,
-MTU, and routing changes still need reconnecting. Rename stops an active
-interface without reactivating it; restoring a backup updates files without
-syncing running interfaces. Backup preflight requires an owned single-link regular ZIP and is complete
-before writes: 64 MiB archive, 4096 entries, 1024 configs, 1 MiB per config and
-16 MiB total text. Later operational failures can still leave a partial restore.
+MTU, and routing changes still need reconnecting; a changed FwMark is refused
+by live sync and always needs a reconnect. If live sync fails after the file
+was saved, a popup says that the saved file and the running interface now
+differ and offers `s` retry sync, `c` reconnect, or `k` keep as is.
+
+Your edited text is never thrown away. If it does not validate, or the helper
+cannot save it (permission, busy lock, timeout, I/O error), a popup offers `r`
+retry (save failures only), `e` re-edit with your text, `d` discard (asks
+again), or Esc to keep the draft for later; `E` reopens it.
+
+After connect, disconnect, rename, delete, start-on-boot and kill-switch
+changes the app re-reads the real state (interface list, saved names,
+service and firewall status) instead of trusting the helper's exit status, and
+reports a mismatch. A helper timeout means the outcome is unknown: the app
+re-checks and shows what actually happened, or says that it could not tell.
+
+Rename stops an active interface without reactivating it; restoring a backup
+updates files without syncing running interfaces. Backup preflight requires an
+owned single-link regular ZIP and is complete before writes: 64 MiB archive,
+4096 entries, 1024 configs, 1 MiB per config and 16 MiB total text. Before the
+first write, restore keeps a copy of every config it will overwrite. If a later
+write fails, it rolls back: previous contents are put back and tunnels the
+restore created are removed again. The report names each tunnel, and any
+rollback step that failed.
 
 ## 5. When a tunnel is active but traffic stalls
 
-Press `D` to check clock synchronization, interface state, handshake age,
+WireGuard only handshakes when it has something to send. A peer without
+PersistentKeepalive can go hours without a handshake and be fine, so an old
+handshake alone does not mean the VPN is broken. Each peer gets a health state
+from its handshake age, the traffic counters between refreshes, its keepalive
+and the time since activation:
+
+- Healthy: a handshake in the last 180 seconds.
+- Connecting: handshake attempts in progress (just activated or just sending).
+- No traffic: up, no handshake yet, and nothing has been sent.
+- Idle: the last handshake is old because nothing needed to be sent.
+- Handshake stale: traffic or the keepalive should have renewed it by now.
+- Connection failed: sending without any answer for longer than WireGuard
+  retries (90 seconds), or a keepalive that never got a handshake.
+
+The interface line shows the most severe peer; each peer shows its own state.
+
+Press `D` to check clock synchronization, interface state, handshake health,
 endpoint ping, and DNS lookup. These are diagnostic clues, not a proof of
 end-to-end service health. ICMP ping can be blocked while WireGuard UDP works.
 Check both public keys, matching PSK, endpoint/port, AllowedIPs, firewall and
-routing, and system time. Unsynchronized time can affect handshakes; a missing
-handshake alone does not establish its cause.
+routing, and system time. An unsynchronized clock is named only as one
+possible cause, and only when handshakes are actually failing.
+
+When the kill switch is on but its firewall rules are gone (for example after
+a firewall reload) or no longer match the tunnel, the detail pane and footer
+say so and the app runs a repair once per detected loss. Repeated losses are
+spaced out by a growing delay; a failed repair is not retried automatically.
 
 Avoid having two tools manage the same interface at once. The kill switch is temporary host-output policy, not a daemon or server NAT
 setup. It requires an active interface and full firewall tools; only one
@@ -117,7 +164,24 @@ clear it; app deactivation/delete/rename attempts cleanup. Recheck after
 external service or firewall changes. Existing switches need off/on after an
 upgrade to install new rule logic.
 
-## 6. Prerequisites and updates
+## 6. Display themes and logging
+
+Choose a theme with `--theme NAME` or `WG_TUI_THEME=NAME`:
+
+- `default`: the standard colours.
+- `high-contrast`: bright text, no dark grey, a yellow selection bar.
+- `ascii`: only ASCII characters (`+-|` borders, no arrows or ellipses; the QR
+  code uses `##` or coloured spaces).
+
+A non-empty `NO_COLOR` turns colours off in every theme; selection and state
+then use bold, reverse video and underline. Below 24x6 the app shows only a
+"terminal too small" note; narrow terminals stack the list above the details.
+
+For troubleshooting, `WG_TUI_LOG=/path/file` appends `key=value` lines to a
+private file, and `--debug` writes them to stderr (redirect it, for example
+`wg-tui --debug 2>wg-tui.log`). Keys are removed before anything is written.
+
+## 7. Prerequisites and updates
 
 `wg-tui doctor` is read-only; unknown/unverified prerequisites are warnings.
 `setup` offers confirmed tools/resolver repairs.
@@ -135,8 +199,10 @@ installation layout.
 ## Audited input and operation limits
 
 Imported config files and external-editor output must be regular files at most
-1 MiB. Named pipes and other special files are rejected without waiting for
-a writer.
+1 MiB. Config, QR and backup files share one open routine: non-blocking open
+(and no symlinks for private files and backups), a check on the opened file,
+then a bounded read. Named pipes, sockets, devices and directories are
+rejected without waiting for a writer.
 
 Config fields are validated on every occurrence, including canonical key pad
 bits, CIDR/keepalive bounds and exact section/field placement. Valid comments,

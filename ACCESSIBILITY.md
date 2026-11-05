@@ -16,12 +16,19 @@ The interface does not require a mouse. Common controls are:
 | Switch Tunnels and Log tabs | Tab or Shift+Tab |
 | Connect/disconnect the selected tunnel | Enter or `a` on the Tunnels tab |
 | Move between copyable detail fields and copy one | Left/Right or `h`/`l`, then `y` |
+| Jump to the next / previous peer | `]` / `[` |
+| Scroll the detail pane | Page Up/Down (it also follows the focused field) |
+| Scroll the key map | Up/Down, `j`/`k`, Page Up/Down, `g`/`G` |
 | Scroll the concepts guide or changelog | Up/Down, `j`/`k`, Page Up/Down, Home/End or `g`/`G` |
 | Close the current view or quit | Esc or `q`, depending on the view; Ctrl+C exits |
 
 Keys are context-sensitive: Enter copies on the Log tab, for example. Popups
-consume keys, and the key-map popup closes on any key. The complete bindings
-are in [Usage and keys](README.md#usage-and-keys) and the [tutorial](docs/TUTORIAL.md).
+consume keys. The key-map popup scrolls with the keys above and closes on any
+other key. It is built from the same table that maps keys to actions, and
+automated tests check that every action has a key, that every documented key
+works in its tab, and the focus order of detail fields and peers. The complete
+bindings are in [Usage and keys](README.md#usage-and-keys) and the
+[tutorial](docs/TUTORIAL.md).
 
 Config editing uses an external editor selected by `VISUAL`, then `EDITOR`,
 then `nano`. Choose an editor that works with your assistive tools. The TUI
@@ -32,18 +39,25 @@ Editor command arguments support quoting, without shell expansion.
 
 - Font size and zoom are controlled by the terminal emulator. Increasing the
   font size reduces the number of visible rows and columns.
-- The application uses fixed terminal colors, including background highlighting
-  for selection. There is no in-app theme, contrast or color-disable setting.
-  Contrast depends on the terminal palette; focus may be difficult to distinguish
-  in some palettes.
+- Three themes are available with `--theme NAME` or the `WG_TUI_THEME`
+  environment variable: `default`, `high-contrast` (bright text, no dark grey,
+  a yellow selection bar) and `ascii` (only ASCII characters: `+-|` borders,
+  no arrows, ellipses or block characters; the QR code uses `##` or coloured
+  spaces). A non-empty `NO_COLOR` turns colours off in any theme; selection and
+  state then use bold, reverse video and underline. Tests check that the ASCII
+  theme renders only ASCII and that `NO_COLOR` output carries no colours.
 - Active/inactive tunnels have `*`/`-` markers and text status as well as color.
-  Unicode borders, arrows and QR block characters depend on terminal/font support.
-  There is no ASCII-only rendering mode.
-- The concepts guide and changelog wrap and scroll. Some detail panes, key hints
-  and fixed-size popups can be clipped in narrow or short terminals. The key-map
-  popup is not scrollable.
+  Connection health and kill-switch problems are written out in words
+  (for example "Idle", "Connection failed", "MISSING"), not only coloured.
+- The concepts guide, changelog, key map and detail pane wrap and scroll. Below
+  24x6 the app shows only a "terminal too small" note; narrow terminals stack
+  the tunnel list above the details; short terminals use a one-line header.
+  Popups with choices keep their key line visible when the text above is
+  clipped. Rendering is tested at many sizes, from 1x1 to 300 columns.
 - Status refreshes automatically. Some footer messages disappear after a short
-  time. There are no dedicated spoken announcements or screen-reader mode.
+  time; failures and anything that needs a decision open a popup that stays
+  until a key is pressed. There are no dedicated spoken announcements or
+  screen-reader mode.
 - On the Log tab, `f` toggles following new lines, and `v` starts a selection
   using a frozen log snapshot. Log text can be copied or saved to a file.
 - QR display is visual. Config export provides a text-file alternative. Both
