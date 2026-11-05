@@ -1,0 +1,101 @@
+name: Install matrix
+
+# Installs, upgrades, rolls back and uninstalls with install.sh in real distro
+# containers, and lints the distro recipes with each distribution's tools.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Read-only token: nothing here publishes or writes to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: install-matrix-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  binaries:
+    name: Build static test binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Link with the toolchain's own linker, as the release workflow does.
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: install-matrix-musl
+      - name: Build
+        run: |
+          cargo build --release --locked --target x86_64-unknown-linux-musl
+          mkdir -p bins
+          cp target/x86_64-unknown-linux-musl/release/wg-tui target/x86_64-unknown-linux-musl/release/wg-helper bins/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: install-matrix-bins
+          path: bins/
+          if-no-files-found: error
+          retention-days: 3
+
+  install:
+    name: Install / upgrade / uninstall (${{ matrix.image }})
+    needs: binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:stable
+          - ubuntu:24.04
+          - fedora:latest
+          - archlinux:latest
+          - alpine:latest
+          - ghcr.io/void-linux/void-glibc:latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The previous release's install.sh (from its tag) is upgraded too.
+          fetch-depth: 0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: install-matrix-bins
+          path: bins
+      - name: Run the integration test
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          chmod 755 bins/*
+          bash tests/install-integration.sh "$IMAGE" bins
+
+  packaging:
+    name: Packaging recipes (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [arch, fedora, alpine, void]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Recipes match Cargo.toml
+        run: bash packaging/update-checksums.sh --check
+      - name: Lint with the distribution's tools
+        env:
+          DISTRO: ${{ matrix.distro }}
+        run: bash tests/install-packaging-lint.sh "$DISTRO"

@@ -2,10 +2,18 @@
 #
 # Universal installer for wireguard-tui (the wg-tui terminal app).
 #
-#   ./install.sh              build + install (auto-installs missing deps)
-#   ./install.sh --polkit     use a polkit rule instead of a sudoers drop-in
-#   ./install.sh --no-desktop skip the app-menu desktop entry/icon (on by default)
-#   ./install.sh uninstall    remove everything
+#   ./install.sh                  build + install (auto-installs missing deps)
+#   ./install.sh --polkit         use a polkit rule instead of a sudoers drop-in
+#   ./install.sh --sudoers        switch back to the sudoers drop-in
+#   ./install.sh --no-desktop     skip the app-menu desktop entry/icon
+#   ./install.sh --binaries=DIR   install prebuilt wg-tui + wg-helper from DIR
+#   ./install.sh --force          install even though a distro package copy exists
+#   ./install.sh uninstall        remove everything this installer added
+#
+# Re-running the installer (or the in-app updater) keeps the authorization
+# mode and desktop-entry choice recorded at the first install unless a flag
+# above changes them. A failed install restores the previous files,
+# authorization and group setup.
 #
 # Works on Debian/Ubuntu, Fedora/RHEL, Arch/Manjaro, openSUSE, Alpine, Void
 # and Solus. Run as a normal user — it calls sudo only where it must.
@@ -23,29 +31,42 @@ export PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH"
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
+APP="wireguard-tui"
+APP_BIN="wg-tui"
+SIBLING_APP="wireguard-gui"
 PREFIX="${PREFIX:-/usr/local}"
-LIBDIR="$PREFIX/lib/wireguard-tui"
-BIN="$PREFIX/bin/wg-tui"
+LIBDIR="$PREFIX/lib/$APP"
+BIN="$PREFIX/bin/$APP_BIN"
+ALIAS="$PREFIX/bin/$APP"
 HELPER="$LIBDIR/wg-helper"
-DESKTOP="$PREFIX/share/applications/wireguard-tui.desktop"
+MANIFEST="$LIBDIR/install-manifest"
+DESKTOP="$PREFIX/share/applications/$APP.desktop"
 ICON_DIR="$PREFIX/share/icons/hicolor/scalable/apps"
-ICON="$ICON_DIR/wireguard-tui.svg"
-SUDOERS="/etc/sudoers.d/wireguard-tui"
-POLKIT_RULE="/etc/polkit-1/rules.d/49-wireguard-tui.rules"
+ICON="$ICON_DIR/$APP.svg"
+SUDOERS="/etc/sudoers.d/$APP"
+POLKIT_DIR="/etc/polkit-1/rules.d"
+POLKIT_RULE="$POLKIT_DIR/49-$APP.rules"
+# Where distro packages put the app; used to refuse duplicate installs.
+PKG_BIN="/usr/bin/$APP_BIN"
+PKG_HELPER="/usr/lib/$APP/wg-helper"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # ---------------------------------------------------------------------------
 # Args
 # ---------------------------------------------------------------------------
 ACTION="install"; AUTH_MODE="sudoers"; INSTALL_DESKTOP=1; ALLOW_ROOT="${WG_ALLOW_ROOT:-0}"
+AUTH_EXPLICIT=0; DESKTOP_EXPLICIT=0; FORCE=0; UPDATE_MODE=0; BINARIES_DIR=""
 for arg in "$@"; do
     case "$arg" in
         uninstall)  ACTION="uninstall" ;;
-        --polkit)   AUTH_MODE="polkit" ;;
-        --sudoers)  AUTH_MODE="sudoers" ;;
-        --desktop)  INSTALL_DESKTOP=1 ;;
-        --no-desktop) INSTALL_DESKTOP=0 ;;
+        --polkit)   AUTH_MODE="polkit"; AUTH_EXPLICIT=1 ;;
+        --sudoers)  AUTH_MODE="sudoers"; AUTH_EXPLICIT=1 ;;
+        --desktop)  INSTALL_DESKTOP=1; DESKTOP_EXPLICIT=1 ;;
+        --no-desktop) INSTALL_DESKTOP=0; DESKTOP_EXPLICIT=1 ;;
         --allow-root) ALLOW_ROOT=1 ;;
+        --force)    FORCE=1 ;;
+        --update)   UPDATE_MODE=1 ;;
+        --binaries=?*) BINARIES_DIR="${arg#--binaries=}" ;;
         *) printf 'Unknown installer option: %s\n' "$arg" >&2; exit 2 ;;
     esac
 done
@@ -62,6 +83,16 @@ say()  { printf "${C}::${N} ${B}%s${N}\n" "$*"; }
 ok()   { printf "${G}✓${N} %s\n" "$*"; }
 warn() { printf "${Y}!${N} %s\n" "$*"; }
 die()  { printf "${R}✗ %s${N}\n" "$*" >&2; exit 1; }
+
+# Only --binaries selects a binaries directory; never an inherited variable.
+unset WG_PREBUILT_DIR
+if [ -n "$BINARIES_DIR" ]; then
+    [ -d "$BINARIES_DIR" ] || die "--binaries: '$BINARIES_DIR' is not a directory."
+    BINARIES_DIR="$(cd "$BINARIES_DIR" && pwd)"
+    [ -f "$BINARIES_DIR/$APP_BIN" ] && [ -f "$BINARIES_DIR/wg-helper" ] \
+        || die "--binaries: '$BINARIES_DIR' must contain both $APP_BIN and wg-helper."
+    export WG_PREBUILT_DIR="$BINARIES_DIR" WG_USE_PREBUILT=1
+fi
 
 # ---------------------------------------------------------------------------
 # Privilege helper
@@ -89,10 +120,11 @@ INVOKER="$(id -un 2>/dev/null || true)"
 # prompt instead of one per privileged step). As root we'll install `sudo` if
 # missing and write a passwordless drop-in for the invoking user - after which
 # the app escalates with `sudo -n wg-helper` and never needs root again. Carry
-# the invoking user across the re-exec so the drop-in targets *them*, not root.
+# the invoking user and the install location across the re-exec so the drop-in
+# targets *them* and the same prefix/binaries are used.
 if [ "$(id -u)" -ne 0 ] && [ "$CAN_SUDO" -eq 0 ] && command -v su >/dev/null 2>&1; then
     warn "No usable sudo here - re-running as root (enter the ROOT password once)."
-    exec su root -c "WG_REAL_USER=$(printf '%q' "$INVOKER") $(printf '%q ' "$HERE/install.sh" "$@")"
+    exec su root -c "WG_REAL_USER=$(printf '%q' "$INVOKER") PREFIX=$(printf '%q' "$PREFIX") WG_USE_PREBUILT=$(printf '%q' "${WG_USE_PREBUILT:-0}") $(printf '%q ' "$HERE/install.sh" "$@")"
 fi
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -188,7 +220,7 @@ validate_install_path() {
             fi
         else
             case "$metadata" in
-                *"No such file or directory"*)
+                *"No such file or directory"*|*"can't stat"*)
                     [[ "$kind" != helper ]] \
                         || die "Installed helper '$path' is missing; existing authorization kept."
                     # A missing path below already-checked protected ancestors
@@ -225,6 +257,7 @@ validate_install_destinations() {
 # independent of the `sudo` group) - but it needs the `sudo` binary present. So
 # "no sudo -> install sudo", then set it up. Skipped for an explicit --polkit.
 ensure_sudo() {
+    [ "$AUTH_MODE" != "none" ] || return 0
     if [ "$AUTH_MODE" = "polkit" ]; then
         command -v pkexec >/dev/null 2>&1 \
             || die "--polkit requires pkexec/polkit. Install it first or use --sudoers; existing authorization kept."
@@ -232,16 +265,7 @@ ensure_sudo() {
     fi
     command -v sudo >/dev/null 2>&1 && return 0
     say "Installing sudo (so the app can use a passwordless helper drop-in)"
-    case "$PM" in
-        apt-get)      as_root apt-get install -y sudo ;;
-        dnf|yum)      as_root "$PM" install -y sudo ;;
-        pacman)       as_root pacman -Sy --noconfirm sudo ;;
-        zypper)       as_root zypper --non-interactive install sudo ;;
-        apk)          as_root apk add --no-cache sudo ;;
-        xbps-install) as_root xbps-install -Sy sudo ;;
-        eopkg)        as_root eopkg install -y sudo ;;
-        *) warn "Unknown package manager - install 'sudo' manually for passwordless use." ;;
-    esac
+    pkg_install sudo || true
     if command -v sudo >/dev/null 2>&1; then
         ok "sudo installed."
     elif command -v pkexec >/dev/null 2>&1; then
@@ -254,16 +278,75 @@ Install 'sudo' manually and re-run, or run wg-tui as root."
 }
 
 # ---------------------------------------------------------------------------
-# Detect the package manager
+# Package manager
 # ---------------------------------------------------------------------------
+# Every invocation installs only what is missing and never refreshes a rolling
+# distro's package database on its own: refreshing pacman's databases without a
+# full upgrade can leave Arch half-upgraded, so pacman is only ever asked for
+# `-S --needed` against the databases the administrator last synced.
 PM=""
 for c in apt-get dnf yum pacman zypper apk xbps-install eopkg; do
     command -v "$c" >/dev/null 2>&1 && { PM="$c"; break; }
 done
 
-# Map (wireguard-tools, C toolchain) to per-distro package names.
+# Print the subset of the named packages that are not installed yet.
+pkg_missing() {
+    local p
+    for p in "$@"; do
+        case "$PM" in
+            apt-get) dpkg-query -W -f='${db:Status-Abbrev}' "$p" 2>/dev/null | grep -q '^ii' \
+                         || printf '%s\n' "$p" ;;
+            dnf|yum|zypper) rpm -q --whatprovides "$p" >/dev/null 2>&1 || printf '%s\n' "$p" ;;
+            pacman) pacman -T "$p" >/dev/null 2>&1 || printf '%s\n' "$p" ;;
+            apk) apk info -e "$p" >/dev/null 2>&1 || printf '%s\n' "$p" ;;
+            xbps-install) xbps-query "$p" >/dev/null 2>&1 || printf '%s\n' "$p" ;;
+            *) printf '%s\n' "$p" ;;
+        esac
+    done
+}
+
+APT_UPDATED=0
+# Install the named packages that are missing. Returns non-zero on failure so
+# callers decide whether a package is required or best-effort.
+pkg_install() {
+    local p
+    local -a wanted=()
+    while IFS= read -r p; do
+        [ -z "$p" ] || wanted+=("$p")
+    done < <(pkg_missing "$@")
+    [ "${#wanted[@]}" -gt 0 ] || return 0
+    case "$PM" in
+        apt-get)
+            if [ "$APT_UPDATED" -eq 0 ]; then
+                as_root apt-get update -qq || true
+                APT_UPDATED=1
+            fi
+            as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "${wanted[@]}" ;;
+        dnf|yum) as_root "$PM" install -y "${wanted[@]}" ;;
+        pacman)
+            if ! as_root pacman -S --needed --noconfirm "${wanted[@]}"; then
+                warn "pacman could not install: ${wanted[*]}"
+                warn "If the package databases are missing or stale, upgrade the whole system"
+                warn "first with 'sudo pacman -Syu', then re-run the installer. (Refreshing the"
+                warn "databases without upgrading risks a partial upgrade, so it is never done here.)"
+                return 1
+            fi ;;
+        zypper) as_root zypper --non-interactive install "${wanted[@]}" ;;
+        apk) as_root apk add "${wanted[@]}" ;;
+        xbps-install)
+            if ! as_root xbps-install -Sy "${wanted[@]}"; then
+                warn "xbps-install could not install: ${wanted[*]}"
+                warn "Update the system first with 'sudo xbps-install -Su', then re-run."
+                return 1
+            fi ;;
+        eopkg) as_root eopkg install -y "${wanted[@]}" ;;
+        *) return 1 ;;
+    esac
+}
+
+# Map (wireguard-tools, iproute2, C toolchain) to per-distro package names.
 install_pkgs() {
-    local build_pkgs=""
+    local build_pkgs="" iproute="iproute2" certs="ca-certificates"
     if ! prebuilt_ready; then
         case "$PM" in
             apt-get) build_pkgs="build-essential" ;;
@@ -272,28 +355,43 @@ install_pkgs() {
             *) build_pkgs="gcc" ;;
         esac
     fi
-    say "Installing dependencies"
     case "$PM" in
-        apt-get) as_root apt-get update -qq || true
-                 as_root apt-get install -y wireguard-tools $build_pkgs curl ca-certificates ;;
-        dnf|yum) as_root "$PM" install -y wireguard-tools $build_pkgs curl ca-certificates ;;
-        pacman)  as_root pacman -Sy --noconfirm --needed wireguard-tools $build_pkgs curl ;;
-        zypper)  as_root zypper --non-interactive install wireguard-tools $build_pkgs curl ca-certificates ;;
-        apk)     as_root apk add --no-cache wireguard-tools $build_pkgs curl ;;
-        xbps-install) as_root xbps-install -Sy wireguard-tools $build_pkgs curl ;;
-        eopkg)   as_root eopkg install -y wireguard-tools $build_pkgs curl ;;
-        *) warn "Unknown package manager — make sure 'wireguard-tools', a C compiler and curl are installed." ;;
+        dnf|yum) iproute="iproute" ;;
+        pacman|eopkg) certs="" ;;
     esac
+    if [ -z "$PM" ]; then
+        warn "Unknown package manager — make sure 'wireguard-tools', iproute2, a C compiler and curl are installed."
+        return 0
+    fi
+    say "Installing dependencies"
+    # shellcheck disable=SC2086 # Package lists are intentionally word-split.
+    pkg_install wireguard-tools $iproute $build_pkgs curl $certs \
+        || die "Could not install the required packages; nothing was changed."
     ok "Dependencies installed."
+}
+
+# Optional runtime tools: the kill switch needs nftables (or iptables), and the
+# in-app updater verifies releases with minisign. Never fatal.
+ensure_optional_tools() {
+    [ -n "$PM" ] || return 0
+    if ! command -v nft >/dev/null 2>&1 && ! command -v iptables-restore >/dev/null 2>&1; then
+        pkg_install nftables >/dev/null 2>&1 \
+            || warn "nftables/iptables not found: the kill switch needs one of them."
+    fi
+    if ! command -v minisign >/dev/null 2>&1; then
+        pkg_install minisign >/dev/null 2>&1 \
+            || warn "minisign not available: in-app updates cannot be verified until it is installed."
+    fi
 }
 
 # Reuse an extracted release bundle without treating source checkouts as
 # prebuilt installs. The updater already stages its verified binaries and opts
-# in explicitly; a manual bundle has adjacent binaries and no Cargo manifest.
+# in explicitly; a manual bundle has adjacent binaries and no Cargo manifest;
+# --binaries=DIR points at locally built binaries.
 prebuilt_ready() {
     [ "${WG_USE_PREBUILT:-0}" = 1 ] \
-        && [ -f "$HERE/target/release/wg-tui" ] \
-        && [ -f "$HERE/target/release/wg-helper" ]
+        && [ -f "${WG_PREBUILT_DIR:-$HERE/target/release}/wg-tui" ] \
+        && [ -f "${WG_PREBUILT_DIR:-$HERE/target/release}/wg-helper" ]
 }
 
 prepare_prebuilt() {
@@ -376,6 +474,8 @@ verify_build_deps() {
 verify_runtime_deps() {
     command -v wg >/dev/null 2>&1 && command -v wg-quick >/dev/null 2>&1 \
         || warn "wireguard-tools (wg/wg-quick) not found — the app needs them at runtime."
+    command -v ip >/dev/null 2>&1 \
+        || warn "iproute2 ('ip') not found — wg-quick needs it to bring tunnels up."
 }
 
 resolvconf_uses_resolvectl() {
@@ -416,18 +516,16 @@ ensure_resolvconf() {
     say "Installing a resolvconf provider (so tunnels with 'DNS =' can connect)"
     case "$PM" in
         apt-get)
+            # Debian 12+/Ubuntu 24.04+: systemd-resolved itself provides the
+            # resolvconf command (there is no separate systemd-resolvconf).
             if systemd_resolved_active; then
-                as_root apt-get install -y systemd-resolvconf || true
+                pkg_install systemd-resolved || true
             else
-                as_root apt-get install -y openresolv || true
+                pkg_install openresolv || true
             fi
             ;;
-        dnf|yum)      as_root "$PM" install -y systemd-resolved || true ;;
-        pacman)       as_root pacman -Sy --noconfirm openresolv || true ;;
-        zypper)       as_root zypper --non-interactive install openresolv || true ;;
-        apk)          as_root apk add openresolv || true ;;
-        xbps-install) as_root xbps-install -Sy openresolv || true ;;
-        eopkg)        as_root eopkg install -y openresolv || true ;;
+        dnf|yum)      pkg_install systemd-resolved || true ;;
+        pacman|zypper|apk|xbps-install|eopkg) pkg_install openresolv || true ;;
     esac
 
     if ! command -v resolvconf >/dev/null 2>&1; then
@@ -448,16 +546,9 @@ ensure_clipboard() {
         || command -v xsel >/dev/null 2>&1; then
         return 0
     fi
+    [ -n "$PM" ] || return 0
     say "Installing a clipboard helper (so Copy reaches the system clipboard)"
-    case "$PM" in
-        apt-get)      as_root apt-get install -y wl-clipboard || as_root apt-get install -y xclip || true ;;
-        dnf|yum)      as_root "$PM" install -y wl-clipboard || as_root "$PM" install -y xclip || true ;;
-        pacman)       as_root pacman -Sy --noconfirm wl-clipboard || as_root pacman -Sy --noconfirm xclip || true ;;
-        zypper)       as_root zypper --non-interactive install wl-clipboard || as_root zypper --non-interactive install xclip || true ;;
-        apk)          as_root apk add wl-clipboard || as_root apk add xclip || true ;;
-        xbps-install) as_root xbps-install -Sy wl-clipboard || as_root xbps-install -Sy xclip || true ;;
-        eopkg)        as_root eopkg install -y wl-clipboard || as_root eopkg install -y xclip || true ;;
-    esac
+    pkg_install wl-clipboard >/dev/null 2>&1 || pkg_install xclip >/dev/null 2>&1 || true
     if command -v wl-copy >/dev/null 2>&1 || command -v xclip >/dev/null 2>&1 \
         || command -v xsel >/dev/null 2>&1; then
         ok "Clipboard helper installed."
@@ -467,48 +558,354 @@ ensure_clipboard() {
     fi
 }
 
-uninstall() {
-    say "Removing wireguard-tui"
-    as_root rm -f "$BIN" "$PREFIX/bin/wireguard-tui" "$HELPER" "$DESKTOP" "$ICON" "$SUDOERS" "$POLKIT_RULE"
-    as_root rmdir "$LIBDIR" 2>/dev/null || true
-    ok "Uninstalled. (Your /etc/wireguard configs were left untouched.)"
-    exit 0
+# ---------------------------------------------------------------------------
+# Ownership: distro packages, duplicates and the install manifest
+# ---------------------------------------------------------------------------
+# Print "<manager> <package>" when a distro package owns the path.
+pkg_owner() {
+    local path="$1" out=""
+    if command -v dpkg-query >/dev/null 2>&1; then
+        out="$(dpkg-query -S "$path" 2>/dev/null | grep -v '^diversion' | head -n 1 | cut -d: -f1 | cut -d, -f1)" || out=""
+        [ -z "$out" ] || { printf 'dpkg %s\n' "$out"; return 0; }
+    fi
+    if command -v rpm >/dev/null 2>&1; then
+        out="$(rpm -qf --queryformat '%{NAME}\n' "$path" 2>/dev/null | head -n 1)" || out=""
+        [ -z "$out" ] || { printf 'rpm %s\n' "$out"; return 0; }
+    fi
+    if command -v pacman >/dev/null 2>&1; then
+        out="$(pacman -Qqo "$path" 2>/dev/null | head -n 1)" || out=""
+        [ -z "$out" ] || { printf 'pacman %s\n' "$out"; return 0; }
+    fi
+    if command -v apk >/dev/null 2>&1; then
+        out="$(apk info --who-owns "$path" 2>/dev/null | sed -n 's/.* is owned by //p' | head -n 1)" || out=""
+        [ -z "$out" ] || { printf 'apk %s\n' "$out"; return 0; }
+    fi
+    if command -v xbps-query >/dev/null 2>&1; then
+        out="$(xbps-query -o "$path" 2>/dev/null | head -n 1 | cut -d: -f1)" || out=""
+        [ -z "$out" ] || { printf 'xbps %s\n' "$out"; return 0; }
+    fi
+    return 1
+}
+
+pkg_remove_hint() {
+    case "$1" in
+        dpkg) printf 'sudo apt remove %s' "$2" ;;
+        rpm) printf 'sudo dnf remove %s' "$2" ;;
+        pacman) printf 'sudo pacman -R %s' "$2" ;;
+        apk) printf 'sudo apk del %s' "${2%-*-r*}" ;;
+        xbps) printf 'sudo xbps-remove %s' "${2%-*}" ;;
+        *) printf 'your package manager' ;;
+    esac
+}
+
+# Refuse a second copy next to a distro package: both would be on PATH, use
+# separate helpers/grants, and the package manager would never update ours.
+check_duplicate_install() {
+    local path owner found=""
+    if [ "$PREFIX" = /usr ]; then
+        for path in "$BIN" "$HELPER"; do
+            if owner="$(pkg_owner "$path")"; then
+                [ "$FORCE" = 1 ] || die "$path belongs to the ${owner% *} package '${owner#* }'. Update it with the package manager, or remove it first ($(pkg_remove_hint "${owner% *}" "${owner#* }")). Pass --force to overwrite package files anyway."
+                warn "--force: overwriting $path from the ${owner% *} package '${owner#* }'."
+            fi
+        done
+        for path in "/usr/local/bin/$APP_BIN" "/usr/local/lib/$APP/wg-helper"; do
+            if as_root test -e "$path"; then
+                warn "Another copy exists under /usr/local ($path) and shadows $PREFIX on PATH."
+                warn "Remove it with: PREFIX=/usr/local ./install.sh uninstall"
+                break
+            fi
+        done
+        return 0
+    fi
+    for path in "$PKG_BIN" "$PKG_HELPER"; do
+        as_root test -e "$path" || continue
+        if owner="$(pkg_owner "$path")"; then
+            found="$path (from the ${owner% *} package '${owner#* }'; remove with: $(pkg_remove_hint "${owner% *}" "${owner#* }"))"
+        else
+            found="$path"
+        fi
+        break
+    done
+    [ -n "$found" ] || return 0
+    if [ "$FORCE" = 1 ]; then
+        warn "--force: installing a second copy into $PREFIX although $found exists."
+        warn "The copy that comes first on PATH wins; keep only one of them."
+        return 0
+    fi
+    die "wireguard-tui is already installed by a package: $found. Installing into $PREFIX as well would leave two copies with separate helpers and authorization. Update the package with your package manager, remove it first, or pass --force to install a second copy anyway."
+}
+
+manifest_get() {
+    as_root sed -n "s/^$1=//p" "$MANIFEST" 2>/dev/null | head -n 1
+}
+
+# Values restored from an earlier install (manifest, or detected for installs
+# made before the manifest existed).
+PREV_INSTALLED=0; PREV_AUTH=""; PREV_AUTH_USER=""; PREV_DESKTOP=""; PREV_FORCE=0
+PREV_GROUP_CREATED=0; PREV_MEMBER_ADDED=0; PREV_SELINUX_FCONTEXT=0; PREV_DIRS=""
+
+load_previous_install() {
+    local value dir
+    if as_root test -e "$MANIFEST"; then
+        validate_install_path "$MANIFEST" file
+        PREV_INSTALLED=1
+        value="$(manifest_get auth)"
+        case "$value" in sudoers|polkit|none) PREV_AUTH="$value" ;; esac
+        value="$(manifest_get auth_user)"
+        [[ "$value" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]] && PREV_AUTH_USER="$value"
+        value="$(manifest_get desktop)"
+        case "$value" in 0|1) PREV_DESKTOP="$value" ;; esac
+        [ "$(manifest_get force)" = 1 ] && PREV_FORCE=1
+        [ "$(manifest_get group_created)" = 1 ] && PREV_GROUP_CREATED=1
+        [ "$(manifest_get group_member_added)" = 1 ] && PREV_MEMBER_ADDED=1
+        [ "$(manifest_get selinux_fcontext)" = 1 ] && PREV_SELINUX_FCONTEXT=1
+        for dir in $(manifest_get created_dirs); do
+            case "$dir" in
+                "$PREFIX"/*|"$POLKIT_DIR") [[ "$dir" =~ ^/[A-Za-z0-9_./-]+$ ]] && PREV_DIRS="$PREV_DIRS $dir" ;;
+            esac
+        done
+    elif as_root test -e "$HELPER"; then
+        # Installed by an installer that predates the manifest: infer the
+        # choices from what is on disk so an update keeps them.
+        PREV_INSTALLED=1
+        if as_root test -e "$POLKIT_RULE"; then
+            PREV_AUTH=polkit
+        elif as_root test -e "$SUDOERS"; then
+            PREV_AUTH=sudoers
+            value="$(as_root sed -n 's/^\([a-zA-Z_][a-zA-Z0-9_-]*\) ALL=(root) NOPASSWD: .*/\1/p' "$SUDOERS" | head -n 1)"
+            PREV_AUTH_USER="$value"
+        else
+            PREV_AUTH=none
+        fi
+        if as_root test -e "$DESKTOP"; then PREV_DESKTOP=1; else PREV_DESKTOP=0; fi
+    fi
+}
+
+apply_previous_choices() {
+    if [ "$UPDATE_MODE" = 1 ] && [ "$PREV_INSTALLED" != 1 ]; then
+        die "--update: no installer-managed copy found in $PREFIX; run ./install.sh for a first install."
+    fi
+    [ "$PREV_INSTALLED" = 1 ] || return 0
+    if [ "$AUTH_EXPLICIT" = 0 ] && [ -n "$PREV_AUTH" ]; then
+        if [ "$PREV_AUTH" != none ]; then
+            AUTH_MODE="$PREV_AUTH"
+            say "Keeping the existing $AUTH_MODE authorization (pass --sudoers or --polkit to change it)."
+        elif [ "$UPDATE_MODE" = 1 ]; then
+            # A root-only install had no helper grant; an update adds none.
+            AUTH_MODE=none
+        fi
+    fi
+    if [ "$DESKTOP_EXPLICIT" = 0 ] && [ -n "$PREV_DESKTOP" ]; then
+        INSTALL_DESKTOP="$PREV_DESKTOP"
+    fi
+    [ "$PREV_FORCE" = 1 ] && FORCE=1
+    # The updater runs on behalf of whoever clicked "update"; keep the grant on
+    # the account it was made for.
+    if [ "$UPDATE_MODE" = 1 ] && [ -n "$PREV_AUTH_USER" ] && id "$PREV_AUTH_USER" >/dev/null 2>&1; then
+        REAL_USER="$PREV_AUTH_USER"
+    fi
+    return 0
+}
+
+install_version() {
+    local v=""
+    if [ -x "${WG_PREBUILT_DIR:-$HERE/target/release}/wg-tui" ]; then
+        v="$(as_user "${WG_PREBUILT_DIR:-$HERE/target/release}/wg-tui" --version 2>/dev/null </dev/null | awk 'NR==1 {print $NF}')" || v=""
+    fi
+    if [[ ! "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [ -f "$HERE/Cargo.toml" ]; then
+        v="$(sed -n 's/^version = "\([0-9.]*\)"/\1/p' "$HERE/Cargo.toml" | head -n 1)"
+    fi
+    [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || v=unknown
+    printf '%s' "$v"
 }
 
 # ---------------------------------------------------------------------------
-# Go
+# Transaction: back up every path we may change, restore it on any failure
 # ---------------------------------------------------------------------------
-printf "${B}wireguard-tui installer${N}\n"
-[ "$ACTION" = "uninstall" ] && uninstall
-[ -n "$PM" ] && say "Detected package manager: ${PM}" || true
+TXN_DIR=""; TXN_ACTIVE=0; TXN_N=0
+TXN_PATH=(); TXN_SAVED=()
+CREATED_DIRS=""; GROUP_CREATED=0; MEMBER_ADDED=0; SELINUX_FCONTEXT_ADDED=0
 
-validate_install_destinations
-prepare_prebuilt
-install_pkgs
-ensure_sudo
-verify_build_deps
-verify_runtime_deps
-ensure_resolvconf
-ensure_clipboard
-build_app
+# Test hook: WG_INSTALL_INJECT_FAILURE=<step> makes that step fail so the
+# rollback path can be exercised. It can only make an install fail.
+inject_failure() {
+    if [ "${WG_INSTALL_INJECT_FAILURE:-}" = "$1" ]; then
+        die "Injected failure at step '$1' (WG_INSTALL_INJECT_FAILURE)."
+    fi
+    return 0
+}
 
-validate_install_destinations
-say "Installing into $PREFIX"
-as_root install -d "$LIBDIR" "$PREFIX/bin"
-as_root install -m755 "$HERE/target/release/wg-tui" "$BIN"
-as_root ln -sf "$BIN" "$PREFIX/bin/wireguard-tui"
-as_root install -m755 "$HERE/target/release/wg-helper" "$HELPER"
-if [ "$INSTALL_DESKTOP" -eq 1 ]; then
-    as_root install -d "$PREFIX/share/applications" "$ICON_DIR"
-    as_root install -m644 "$HERE/packaging/wireguard-tui.desktop" "$DESKTOP"
-    as_root install -m644 "$HERE/packaging/wireguard-tui.svg" "$ICON"
-    command -v update-desktop-database >/dev/null 2>&1 && \
-        as_root update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
-    ok "Desktop entry installed."
-else
-    ok "Skipped desktop entry (use ./install.sh --desktop to add it)."
-fi
-ok "Files installed."
+txn_begin() {
+    local path i
+    TXN_DIR="$(as_root mktemp -d "/tmp/$APP-install.XXXXXX")" \
+        || die "Could not create a private backup directory; nothing was changed."
+    for path in "$@"; do
+        i="$TXN_N"
+        TXN_PATH[i]="$path"
+        TXN_SAVED[i]=0
+        if as_root test -e "$path" || as_root test -L "$path"; then
+            as_root cp -a "$path" "$TXN_DIR/$i" \
+                || die "Could not back up $path; nothing was changed."
+            TXN_SAVED[i]=1
+        fi
+        TXN_N=$((i + 1))
+    done
+    TXN_ACTIVE=1
+}
+
+txn_commit() {
+    TXN_ACTIVE=0
+    [ -z "$TXN_DIR" ] || as_root rm -rf "$TXN_DIR"
+    TXN_DIR=""
+}
+
+group_remove_member() {
+    as_root gpasswd -d "$1" wireguard >/dev/null 2>&1 \
+        || as_root deluser "$1" wireguard >/dev/null 2>&1 \
+        || as_root delgroup "$1" wireguard >/dev/null 2>&1
+}
+
+group_delete() {
+    as_root groupdel wireguard >/dev/null 2>&1 || as_root delgroup wireguard >/dev/null 2>&1
+}
+
+txn_rollback() {
+    local i path dir failed=0 dirs=""
+    [ "$TXN_ACTIVE" = 1 ] || return 0
+    TXN_ACTIVE=0
+    set +e
+    warn "Installation failed - restoring the previous installation."
+    for ((i = TXN_N - 1; i >= 0; i--)); do
+        path="${TXN_PATH[i]}"
+        as_root rm -f "$path"
+        as_root rm -f "$path.wg-new.$$"
+        if [ "${TXN_SAVED[i]}" = 1 ]; then
+            as_root cp -a "$TXN_DIR/$i" "$path" || { warn "Could not restore $path"; failed=1; }
+        fi
+    done
+    if [ "$MEMBER_ADDED" = 1 ]; then
+        group_remove_member "$REAL_USER" || { warn "Could not remove $REAL_USER from 'wireguard'."; failed=1; }
+    fi
+    if [ "$GROUP_CREATED" = 1 ]; then
+        group_delete || { warn "Could not delete the 'wireguard' group created by this run."; failed=1; }
+    fi
+    if [ "$SELINUX_FCONTEXT_ADDED" = 1 ]; then
+        as_root semanage fcontext -d "${HELPER//./\\.}" >/dev/null 2>&1 || true
+    fi
+    for dir in $CREATED_DIRS; do dirs="$dir $dirs"; done
+    for dir in $dirs; do as_root rmdir "$dir" 2>/dev/null; done
+    if selinux_enabled && command -v restorecon >/dev/null 2>&1; then
+        for path in "${TXN_PATH[@]}"; do
+            as_root test -e "$path" && as_root restorecon -F "$path" >/dev/null 2>&1
+        done
+    fi
+    if [ "$failed" = 0 ]; then
+        as_root rm -rf "$TXN_DIR"
+        warn "Previous state restored; nothing was changed."
+    else
+        warn "Some files could not be restored; backups are kept in $TXN_DIR."
+    fi
+}
+
+on_exit() {
+    local rc=$?
+    if [ "$rc" -ne 0 ]; then
+        txn_rollback
+    fi
+    return "$rc"
+}
+
+# Create a directory (and missing parents) without touching an existing one,
+# recording what we created for rollback and uninstall.
+ensure_dir() {
+    local dir="$1" probe="$1" todo=""
+    while [ -n "$probe" ] && [ "$probe" != / ] && ! as_root test -d "$probe"; do
+        todo="$probe $todo"
+        probe="$(dirname "$probe")"
+    done
+    [ -n "$todo" ] || return 0
+    as_root install -d -m755 "$dir"
+    CREATED_DIRS="$CREATED_DIRS $todo"
+}
+
+# Write via a temporary sibling + rename, so a failure never leaves a
+# truncated binary behind and a running copy keeps its old inode.
+install_file() {
+    local mode="$1" src="$2" dest="$3"
+    as_root install -m "$mode" "$src" "$dest.wg-new.$$" \
+        || { as_root rm -f "$dest.wg-new.$$"; return 1; }
+    as_root mv -f "$dest.wg-new.$$" "$dest" \
+        || { as_root rm -f "$dest.wg-new.$$"; return 1; }
+}
+
+# ---------------------------------------------------------------------------
+# SELinux
+# ---------------------------------------------------------------------------
+selinux_enabled() {
+    if command -v selinuxenabled >/dev/null 2>&1; then
+        selinuxenabled
+    else
+        [ -e /sys/fs/selinux/enforce ]
+    fi
+}
+
+# Files written under /usr/local or moved from /tmp can carry a label that
+# pkexec/sudo may not execute. Restore default contexts and give the helper an
+# executable (bin_t) context, persistently when semanage is available.
+apply_selinux_labels() {
+    local path ctx
+    local -a paths=()
+    selinux_enabled || return 0
+    say "Restoring SELinux file contexts"
+    if command -v semanage >/dev/null 2>&1; then
+        if as_root semanage fcontext -a -t bin_t "${HELPER//./\\.}" >/dev/null 2>&1; then
+            SELINUX_FCONTEXT_ADDED=1
+        elif ! as_root semanage fcontext -m -t bin_t "${HELPER//./\\.}" >/dev/null 2>&1; then
+            warn "semanage could not record a bin_t rule for $HELPER."
+        fi
+    fi
+    for path in "$BIN" "$ALIAS" "$LIBDIR" "$HELPER" "$MANIFEST" "$DESKTOP" "$ICON" "$SUDOERS" "$POLKIT_RULE"; do
+        as_root test -e "$path" && paths+=("$path")
+    done
+    if [ "${#paths[@]}" -gt 0 ] && command -v restorecon >/dev/null 2>&1; then
+        as_root restorecon -F "${paths[@]}" \
+            || warn "restorecon failed; check the labels with: ls -Z ${paths[*]}"
+    else
+        warn "restorecon not found (install policycoreutils); file labels were not restored."
+    fi
+    ctx="$(as_root stat -c %C "$HELPER" 2>/dev/null || true)"
+    case "$ctx" in
+        *:bin_t:*) ;;
+        *)
+            if command -v chcon >/dev/null 2>&1 && as_root chcon -t bin_t "$HELPER"; then
+                warn "Labelled $HELPER bin_t with chcon. A full relabel resets this; install"
+                warn "semanage (policycoreutils-python-utils) and re-run to make it persistent."
+            else
+                warn "The helper's SELinux context is '$ctx' (expected bin_t)."
+            fi ;;
+    esac
+    ok "SELinux contexts restored."
+}
+
+# Run the installed helper the way sudo/pkexec will: as root, by path. Without a
+# verb it prints a usage error and exits 2. Exit 126/127 or a signal means it
+# never ran; the shell's own message tells a denial (SELinux, a noexec mount)
+# from a missing loader (wrong CPU or C library), since shells differ in codes.
+verify_helper_executes() {
+    local rc=0 out
+    out="$(as_root sh -c '"$1" </dev/null 2>&1 >/dev/null' wg-helper-probe "$HELPER")" || rc=$?
+    [ "$rc" -ge 126 ] || { ok "Helper runs as root."; return 0; }
+    case "$out" in
+        *"ermission denied"*)
+            if selinux_enabled; then
+                die "Executing $HELPER was denied (SELinux). Check 'sudo ausearch -m avc -ts recent' and 'ls -Z $HELPER'; fix the label with 'sudo semanage fcontext -a -t bin_t ${HELPER//./\\.} && sudo restorecon -v $HELPER', then re-run. The previous installation is restored."
+            fi
+            die "Executing $HELPER was denied (permission denied; is $PREFIX mounted noexec?). The previous installation is restored." ;;
+        *)
+            die "$HELPER cannot run on this system (exit $rc: ${out:-no output}): wrong CPU architecture or C library for these binaries. Build from source or use the matching release. The previous installation is restored." ;;
+    esac
+}
 
 # ---------------------------------------------------------------------------
 # Authorisation: sudoers drop-in (default) or polkit rule
@@ -531,6 +928,10 @@ wireguard_user_enrolled() {
 }
 
 configure_authorization() {
+    if [ "$AUTH_MODE" = "none" ]; then
+        ok "No passwordless helper grant (unchanged from the existing installation)."
+        return 0
+    fi
     validate_authorization_path
     if [ "$AUTH_MODE" = "polkit" ]; then
         say "Installing polkit rule (passwordless for the 'wireguard' group)"
@@ -544,6 +945,7 @@ configure_authorization() {
                 || as_root addgroup wireguard 2>/dev/null || true
             wireguard_group_exists \
                 || die "Could not create the wireguard authorization group; existing authorization kept."
+            GROUP_CREATED=1
         fi
         if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ] \
                 && printf '%s' "$REAL_USER" | grep -qE '^[a-zA-Z_][a-zA-Z0-9_-]*$' \
@@ -556,17 +958,20 @@ configure_authorization() {
                     || as_root adduser "$REAL_USER" wireguard 2>/dev/null || true
                 wireguard_user_enrolled \
                     || die "Could not enroll $REAL_USER in wireguard; existing authorization kept."
+                MEMBER_ADDED=1
                 ok "Added $REAL_USER to the 'wireguard' group (log out and back in for it to take effect)."
             fi
         else
             warn "Couldn't add a user to the 'wireguard' group automatically."
             warn "Add yours with: sudo usermod -aG wireguard <your-username>  (then re-login)."
         fi
-        as_root install -d /etc/polkit-1/rules.d
+        inject_failure auth-group
+        [ -d "$POLKIT_DIR" ] || ensure_dir "$POLKIT_DIR"
         validate_install_path "$HELPER" helper
         as_root install -m644 "$HERE/packaging/49-wireguard-tui.rules" "$POLKIT_RULE" \
             || die "Could not install polkit rule; existing authorization kept."
         as_root rm -f "$SUDOERS" || die "Could not remove the previous sudoers grant."
+        AUTH_RESULT=polkit
         ok "polkit rule installed at $POLKIT_RULE (limited to the 'wireguard' group)."
     elif [ -z "$REAL_USER" ] || [ "$REAL_USER" = "root" ]; then
         warn "Couldn't determine the invoking user - skipping the passwordless drop-in."
@@ -584,6 +989,7 @@ configure_authorization() {
             validate_install_path "$HELPER" helper
             as_root install -m440 "$tmp" "$SUDOERS" || { rm -f "$tmp"; die "Could not install sudoers grant; existing authorization kept."; }
             as_root rm -f "$POLKIT_RULE" || { rm -f "$tmp"; die "Could not remove the previous polkit grant."; }
+            AUTH_RESULT=sudoers
             ok "Passwordless helper set up for $REAL_USER (works even without sudo-group membership)."
         else
             rm -f "$tmp"
@@ -593,7 +999,173 @@ configure_authorization() {
     fi
 }
 
+write_manifest() {
+    local tmp auth="${AUTH_RESULT:-}" auth_user="" origin
+    if [ -z "$auth" ]; then
+        # Grant skipped (root install without a user): keep describing what
+        # is still on disk so a later update preserves it.
+        if as_root test -e "$POLKIT_RULE"; then auth=polkit
+        elif as_root test -e "$SUDOERS"; then auth=sudoers
+        else auth=none; fi
+        auth_user="$PREV_AUTH_USER"
+    elif [ "$REAL_USER" != root ]; then
+        auth_user="$REAL_USER"
+    fi
+    if [ "$UPDATE_MODE" = 1 ]; then origin=release
+    elif [ -n "$BINARIES_DIR" ]; then origin=prebuilt
+    elif [ -f "$HERE/Cargo.toml" ] && [ "${WG_USE_PREBUILT:-0}" != 1 ]; then origin=source
+    else origin=release; fi
+    tmp="$(mktemp)"
+    {
+        printf '# Installation record written by install.sh and read by the in-app\n'
+        printf '# updater so updates keep the same method, prefix and authorization.\n'
+        printf 'format=1\n'
+        printf 'app=%s\n' "$APP"
+        printf 'method=installer\n'
+        printf 'origin=%s\n' "$origin"
+        printf 'version=%s\n' "$INSTALL_VERSION"
+        printf 'prefix=%s\n' "$PREFIX"
+        printf 'auth=%s\n' "$auth"
+        printf 'auth_user=%s\n' "$auth_user"
+        if as_root test -e "$DESKTOP"; then printf 'desktop=1\n'; else printf 'desktop=0\n'; fi
+        printf 'force=%s\n' "$FORCE"
+        printf 'group_created=%s\n' "$(( PREV_GROUP_CREATED | GROUP_CREATED ))"
+        printf 'group_member_added=%s\n' "$(( PREV_MEMBER_ADDED | MEMBER_ADDED ))"
+        printf 'selinux_fcontext=%s\n' "$(( PREV_SELINUX_FCONTEXT | SELINUX_FCONTEXT_ADDED ))"
+        # shellcheck disable=SC2086 # Space-separated path lists (no spaces in paths).
+        printf 'created_dirs=%s\n' "$(printf '%s\n' $PREV_DIRS $CREATED_DIRS | awk 'NF && !seen[$0]++' | tr '\n' ' ' | sed 's/ $//')"
+    } > "$tmp"
+    install_file 644 "$tmp" "$MANIFEST" || { rm -f "$tmp"; die "Could not write $MANIFEST."; }
+    rm -f "$tmp"
+}
+
+# ---------------------------------------------------------------------------
+# Uninstall
+# ---------------------------------------------------------------------------
+sibling_uses_group() {
+    as_root test -e "/etc/polkit-1/rules.d/49-$SIBLING_APP.rules" \
+        || as_root test -e "/usr/share/polkit-1/rules.d/49-$SIBLING_APP.rules"
+}
+
+uninstall() {
+    local path owner dir dirs="" member had_desktop
+    say "Removing wireguard-tui from $PREFIX"
+    if [ "$PREFIX" = /usr ] && owner="$(pkg_owner "$BIN")"; then
+        die "$BIN belongs to the ${owner% *} package '${owner#* }'; remove it with: $(pkg_remove_hint "${owner% *}" "${owner#* }")"
+    fi
+    validate_install_path "$PREFIX" directory
+    load_previous_install
+    had_desktop=0
+    as_root test -e "$DESKTOP" && had_desktop=1
+    as_root rm -f "$BIN" "$HELPER" "$MANIFEST" "$DESKTOP" "$ICON" "$SUDOERS"
+    if as_root test -L "$ALIAS" || as_root test -f "$ALIAS"; then as_root rm -f "$ALIAS"; fi
+    # The .deb installs a rule with the same name; leave package files alone.
+    if ! pkg_owner "$POLKIT_RULE" >/dev/null; then as_root rm -f "$POLKIT_RULE"; fi
+    if [ "$PREV_SELINUX_FCONTEXT" = 1 ] && command -v semanage >/dev/null 2>&1; then
+        as_root semanage fcontext -d "${HELPER//./\\.}" >/dev/null 2>&1 || true
+    fi
+    if [ "$PREV_GROUP_CREATED" = 1 ] || [ "$PREV_MEMBER_ADDED" = 1 ]; then
+        if sibling_uses_group; then
+            warn "Keeping the 'wireguard' group: $SIBLING_APP still uses it."
+        else
+            if [ "$PREV_MEMBER_ADDED" = 1 ] && [ -n "$PREV_AUTH_USER" ]; then
+                group_remove_member "$PREV_AUTH_USER" || true
+            fi
+            if [ "$PREV_GROUP_CREATED" = 1 ]; then
+                member="$( (getent group wireguard 2>/dev/null || grep '^wireguard:' /etc/group) | cut -d: -f4)"
+                if [ -z "$member" ]; then
+                    group_delete || warn "Could not delete the 'wireguard' group."
+                else
+                    warn "Keeping the 'wireguard' group: it still has members ($member)."
+                fi
+            fi
+        fi
+    fi
+    as_root rmdir "$LIBDIR" 2>/dev/null || true
+    # Refresh the desktop cache only if an entry was removed; drop the cache
+    # once no entries remain (it only indexes .desktop files).
+    if [ "$had_desktop" = 1 ] && as_root test -d "$PREFIX/share/applications"; then
+        if ls "$PREFIX/share/applications"/*.desktop >/dev/null 2>&1; then
+            command -v update-desktop-database >/dev/null 2>&1 \
+                && as_root update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
+        else
+            as_root rm -f "$PREFIX/share/applications/mimeinfo.cache"
+        fi
+    fi
+    for dir in $PREV_DIRS; do dirs="$dir $dirs"; done
+    for dir in $dirs; do
+        # An empty desktop cache in a directory we created is ours too.
+        path="$dir/mimeinfo.cache"
+        if [ "$dir" = "$PREFIX/share/applications" ] && as_root test -f "$path" \
+                && [ "$(as_root ls -A "$dir")" = mimeinfo.cache ]; then
+            as_root rm -f "$path"
+        fi
+        as_root rmdir "$dir" 2>/dev/null || true
+    done
+    ok "Uninstalled. (Your /etc/wireguard configs were left untouched.)"
+    exit 0
+}
+
+# ---------------------------------------------------------------------------
+# Go
+# ---------------------------------------------------------------------------
+printf "${B}wireguard-tui installer${N}\n"
+[ "$ACTION" = "uninstall" ] && uninstall
+[ -n "$PM" ] && say "Detected package manager: ${PM}" || true
+
+validate_install_destinations
+load_previous_install
+apply_previous_choices
+check_duplicate_install
+validate_install_destinations
+prepare_prebuilt
+install_pkgs
+ensure_sudo
+verify_build_deps
+verify_runtime_deps
+ensure_resolvconf
+ensure_clipboard
+ensure_optional_tools
+build_app
+INSTALL_VERSION="$(install_version)"
+STAGE="${WG_PREBUILT_DIR:-$HERE/target/release}"
+
+validate_install_destinations
+trap on_exit EXIT
+trap 'exit 130' INT TERM HUP
+txn_begin "$BIN" "$ALIAS" "$HELPER" "$MANIFEST" "$DESKTOP" "$ICON" "$SUDOERS" "$POLKIT_RULE"
+
+say "Installing wireguard-tui $INSTALL_VERSION into $PREFIX"
+ensure_dir "$LIBDIR"
+ensure_dir "$PREFIX/bin"
+install_file 755 "$STAGE/wg-tui" "$BIN" || die "Could not install $BIN."
+inject_failure binaries
+as_root ln -sfn "$APP_BIN" "$ALIAS"
+install_file 755 "$STAGE/wg-helper" "$HELPER" || die "Could not install $HELPER."
+inject_failure helper
+if [ "$INSTALL_DESKTOP" -eq 1 ]; then
+    ensure_dir "$PREFIX/share/applications"
+    ensure_dir "$ICON_DIR"
+    install_file 644 "$HERE/packaging/wireguard-tui.desktop" "$DESKTOP" || die "Could not install $DESKTOP."
+    install_file 644 "$HERE/packaging/wireguard-tui.svg" "$ICON" || die "Could not install $ICON."
+    command -v update-desktop-database >/dev/null 2>&1 && \
+        as_root update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
+    ok "Desktop entry installed."
+else
+    ok "Skipped desktop entry (use ./install.sh --desktop to add it)."
+fi
+inject_failure desktop
+ok "Files installed."
+
+AUTH_RESULT=""
 configure_authorization
+inject_failure auth
+apply_selinux_labels
+inject_failure selinux
+verify_helper_executes
+write_manifest
+inject_failure manifest
+txn_commit
 
 printf "\n${G}Done!${N} Launch with:  ${B}wg-tui${N}\n"
 if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then

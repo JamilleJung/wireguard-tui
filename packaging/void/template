@@ -4,17 +4,26 @@ version=1.9.3
 revision=1
 build_style=cargo
 hostmakedepends="pkg-config"
-depends="wireguard-tools polkit"
-short_desc="Native terminal UI for plain WireGuard tunnels"
-maintainer="downstream packager <packager@example.invalid>"
+depends="wireguard-tools iproute2 nftables polkit"
+short_desc="Terminal UI for managing WireGuard tunnels"
+maintainer="jamillejung <izeystudio@gmail.com>"
 license="MIT"
 homepage="https://github.com/JamilleJung/wireguard-tui"
+changelog="https://raw.githubusercontent.com/JamilleJung/wireguard-tui/main/CHANGELOG.md"
 distfiles="https://github.com/JamilleJung/wireguard-tui/archive/refs/tags/v${version}.tar.gz"
-checksum=@CHECKSUM@
+checksum=afe5cf5f08294b808da675c54c0131e2808a310f5b17317ef5ca6f0346b8930a
 
+# The cargo build style's do_install would put wg-helper in /usr/bin.
 do_install() {
-	vbin target/release/wg-tui
-	vinstall target/release/wg-helper 755 usr/lib/wireguard-tui wg-helper
+	vbin target/${RUST_TARGET}/release/wg-tui
+	vinstall target/${RUST_TARGET}/release/wg-helper 755 usr/lib/wireguard-tui
 	vinstall packaging/49-wireguard-tui.rules 644 usr/share/polkit-1/rules.d
+	vinstall packaging/wireguard-tui.desktop 644 usr/share/applications
+	vinstall packaging/wireguard-tui.svg 644 usr/share/icons/hicolor/scalable/apps
+	# Tells the in-app updater that xbps owns this copy.
+	printf 'format=1\napp=%s\nmethod=package\nmanager=xbps\n' "${pkgname}" \
+		> "${DESTDIR}/usr/lib/wireguard-tui/install-manifest"
+	chmod 644 "${DESTDIR}/usr/lib/wireguard-tui/install-manifest"
+	vdoc README.md
 	vlicense LICENSE
 }

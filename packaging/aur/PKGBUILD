@@ -2,23 +2,30 @@
 pkgname=wireguard-tui
 pkgver=1.9.3
 pkgrel=1
-pkgdesc="A native Linux terminal UI (TUI) for managing WireGuard tunnels"
+pkgdesc="Terminal UI for managing WireGuard tunnels with wg and wg-quick"
 arch=('x86_64' 'aarch64')
 url="https://github.com/JamilleJung/wireguard-tui"
 license=('MIT')
-# No GUI libraries. Runtime management uses wireguard-tools and polkit; DNS may
-# need a resolver provider. systemd boot integration and journald are optional.
-# Passwordless polkit access also needs administrator-managed wireguard-group
-# membership and an active local session; this recipe only installs the rule.
-depends=('wireguard-tools' 'polkit')
+# The privileged helper runs wg/wg-quick (which need ip from iproute2) and the
+# kill switch uses nftables, falling back to iptables (pulled in by iproute2).
+# Passwordless polkit access also needs administrator-managed membership in
+# the wireguard group and an active local session.
+depends=('glibc' 'libgcc' 'wireguard-tools' 'iproute2' 'polkit')
 makedepends=('cargo')
+optdepends=('nftables: kill switch (preferred over the iptables fallback)'
+            'openresolv: resolvconf for configs with a DNS line'
+            'sudo: sudoers-based helper authorization instead of polkit'
+            'wl-clipboard: copy to the Wayland clipboard'
+            'xclip: copy to the X11 clipboard'
+            'minisign: verify release signatures')
+install=wireguard-tui.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')  # `makepkg -g` before publishing to the AUR
+sha256sums=('afe5cf5f08294b808da675c54c0131e2808a310f5b17317ef5ca6f0346b8930a')
 
 prepare() {
     cd "$pkgname-$pkgver"
     export RUSTUP_TOOLCHAIN=stable
-    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+    cargo fetch --locked --target "$(rustc --print host-tuple)"
 }
 
 build() {
@@ -29,15 +36,21 @@ build() {
 
 check() {
     cd "$pkgname-$pkgver"
-    export RUSTUP_TOOLCHAIN=stable
-    cargo test --frozen --release
+    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+    cargo test --frozen
 }
 
 package() {
     cd "$pkgname-$pkgver"
     install -Dm755 target/release/wg-tui "$pkgdir/usr/bin/wg-tui"
-    install -Dm755 target/release/wg-helper "$pkgdir/usr/lib/wireguard-tui/wg-helper"
+    install -Dm755 target/release/wg-helper "$pkgdir/usr/lib/$pkgname/wg-helper"
     install -Dm644 packaging/49-wireguard-tui.rules "$pkgdir/usr/share/polkit-1/rules.d/49-wireguard-tui.rules"
+    install -Dm644 packaging/wireguard-tui.desktop "$pkgdir/usr/share/applications/wireguard-tui.desktop"
+    install -Dm644 packaging/wireguard-tui.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/wireguard-tui.svg"
+    # Tells the in-app updater that pacman owns this copy.
+    printf 'format=1\napp=%s\nmethod=package\nmanager=pacman\n' "$pkgname" \
+        > "$pkgdir/usr/lib/$pkgname/install-manifest"
+    chmod 644 "$pkgdir/usr/lib/$pkgname/install-manifest"
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

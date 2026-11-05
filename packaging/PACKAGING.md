@@ -12,7 +12,8 @@ external repository.
 | App | `/usr/local/bin/wg-tui` | `/usr/bin/wg-tui` | `/usr/bin/wg-tui` |
 | Helper | `/usr/local/lib/wireguard-tui/wg-helper` | `/usr/lib/wireguard-tui/wg-helper` | `/usr/lib/wireguard-tui/wg-helper` |
 | Auth | Per-user sudoers by default, optional polkit | `/etc/polkit-1/rules.d/49-wireguard-tui.rules` | `/usr/share/polkit-1/rules.d/49-wireguard-tui.rules` |
-| Launcher/icon | Included unless `--no-desktop` | Included | Not installed by current recipes |
+| Launcher/icon | Included unless `--no-desktop` | Included | Included |
+| Install record | `/usr/local/lib/wireguard-tui/install-manifest` (`method=installer`) | none (detected with `dpkg-query -S`) | `/usr/lib/wireguard-tui/install-manifest` (`method=package`) |
 
 The polkit rule recognizes both standard helper paths and grants passwordless
 access only to an active **local** session in the `wireguard` group. Current
@@ -35,12 +36,16 @@ source/prebuilt installer's `--polkit` path attempts group setup automatically.
 
 ## Runtime and build requirements
 
-`wireguard-tools` supplies `wg`/`wg-quick`; the kernel needs usable WireGuard
-support. Packages use polkit/pkexec authorization; systemd is optional for
-start-on-boot, journald for log entries, and resolvconf integration for `DNS =`.
-Native clipboard helpers are optional (OSC 52 fallback). The updater requires
-curl, tar, sha256sum and minisign; it may attempt to install minisign if absent.
-Do not claim the current recipes declare every optional integration dependency.
+`wireguard-tools` supplies `wg`/`wg-quick`, which need `ip` from iproute2; the
+kernel needs usable WireGuard support. Packages use polkit/pkexec
+authorization. The kill switch needs nftables (preferred) or iptables. The
+recipes declare these: Arch depends on iproute2 (which pulls in iptables) and
+suggests nftables; Fedora requires `(nftables or iptables-nft or
+iptables-legacy)`; Alpine and Void depend on nftables. systemd is optional for
+start-on-boot, journald for log entries, and resolvconf integration for `DNS =`
+(optional dependency/recommendation). Native clipboard helpers are optional
+(OSC 52 fallback). The updater requires curl, tar, sha256sum and minisign; the
+installer installs minisign when available and the updater may try once.
 
 Building needs a suitable Rust 2024 toolchain and C linker, without graphical
 libraries. Recipes use the checked-in lockfile; inspect it and run the
@@ -70,39 +75,63 @@ instructions. Install a verified release with the package manager, for example
 
 ## Arch / AUR
 
-[`aur/PKGBUILD`](aur/PKGBUILD) targets x86_64 and aarch64. It fetches the tagged
-source, fetches locked dependencies, builds/tests with `--frozen`, and installs
-the helper/rule. Replace `sha256sums=('SKIP')` using `makepkg -g` and generate
-`.SRCINFO` before publishing. Bump `pkgver`/`pkgrel` deliberately and keep the
-checksum aligned with the tagged source. Build with `makepkg -si` from the
-recipe directory as an unprivileged packager.
+[`aur/PKGBUILD`](aur/PKGBUILD) targets x86_64 and aarch64 and is ready for AUR
+submission together with the generated [`aur/.SRCINFO`](aur/.SRCINFO) and
+[`aur/wireguard-tui.install`](aur/wireguard-tui.install). It depends on glibc,
+libgcc, wireguard-tools, iproute2 and polkit, runs `cargo test` in `check()`,
+and builds as an unprivileged user with `makepkg -si`. Bump `pkgrel` for
+packaging-only changes and regenerate `.SRCINFO` with the script below.
 
 ## Fedora / RHEL-family RPM
 
-[`rpm/wireguard-tui.spec`](rpm/wireguard-tui.spec) covers x86_64 and aarch64,
-uses locked release builds/tests, and installs the standard `/usr` helper and
-polkit rule. It declares Rust/cargo/gcc/pkgconf build requirements and
-WireGuard/polkit runtime requirements. `systemd-resolved` is a recommendation.
-An inactive resolvectl compatibility shim still needs administrator approval to
-enable its backing service (`wg-tui setup` can offer that repair).
-
-Build with the distro's RPM tooling/COPR after preparing the tagged `Source0`
-archive and build environment. The recipe is supplied here; independently
-verify any external COPR repository before enabling it. Keep `Version`, the
-changelog and tag synchronized. Follow the distro's SELinux labeling/policy
-requirements for the installed helper.
+[`rpm/wireguard-tui.spec`](rpm/wireguard-tui.spec) covers x86_64 and aarch64 for
+COPR/mock: `Source0` is the tagged archive and `Source1` the vendored crates
+(`packaging/update-checksums.sh --vendor`), so the build needs no network.
+`%check` runs the test suite. Runtime requirements are wireguard-tools,
+iproute, polkit and nftables or iptables; systemd-resolved is recommended.
+On SELinux hosts the packaged helper lives in `/usr/lib/wireguard-tui/` and is
+labelled by the distro policy; see [DISTROS.md](../docs/DISTROS.md#selinux).
+Keep `Version`, the changelog and tag synchronized (the script does this).
 
 ## Alpine and Void
 
-[`apk/APKBUILD`](apk/APKBUILD) and [`void/template`](void/template) are maintainer
-templates for x86_64/aarch64. They install the terminal app/helper and polkit
-rule without a graphical stack. Replace Alpine's `sha512sums="SKIP"` and Void's
-`checksum=@CHECKSUM@` with verified source checksums and supply real maintainer
-metadata before submission. Review distro Rust/dependency availability.
+[`apk/APKBUILD`](apk/APKBUILD) follows aports conventions (Contributor and
+Maintainer lines, `cargo fetch` in `prepare()`, `cargo auditable build --frozen`,
+`check()`, a `-doc` subpackage, post-install/post-upgrade messages) and
+[`void/template`](void/template) uses Void's cargo build style, installing from
+`target/$RUST_TARGET/release` with its own `do_install` so the helper goes to
+`/usr/lib/wireguard-tui/` rather than `/usr/bin`. Both target x86_64/aarch64
+and depend on wireguard-tools, iproute2, nftables and polkit.
 
 The app's start-on-boot toggle is systemd-only; on OpenRC/runit provide an
 appropriate distro service if boot activation is desired. Do not promise a
 journal-backed Log view without journald.
+
+### Recipe maintenance
+
+Run `packaging/update-checksums.sh` after tagging a release. It reads the
+version from `Cargo.toml`, syncs `pkgver`/`version`/`Version` in all four
+recipes (resetting the package release numbers and adding an RPM changelog
+entry on a version change), downloads the tagged source archive (or takes
+`--tarball=FILE`), writes its SHA-256 (AUR, Void) and SHA-512 (Alpine)
+checksums, and regenerates `aur/.SRCINFO`. `--vendor` also writes the RPM's
+offline crate archive (`Source1`) to `target/packaging/`.
+`packaging/update-checksums.sh --check` is the offline CI check that versions
+and `.SRCINFO` match (`--strict` also rejects placeholder checksums).
+`tests/install-packaging-lint.sh` runs `makepkg --printsrcinfo`, `namcap` and
+`makepkg --verifysource` (Arch), `rpmspec -P` and `rpmlint` (Fedora),
+`apkbuild-lint` and `abuild verify` (Alpine) and `xlint` (Void) in containers;
+`--build` also builds the packages.
+
+Every recipe fetches crates only in its prepare step (`cargo fetch --locked`),
+then builds and tests offline with `--frozen`; the RPM builds from the vendored
+`Source1` archive with no network at all. Each package installs the license,
+README, helper under `/usr/lib/wireguard-tui/`, polkit rule, desktop entry and icon,
+plus `/usr/lib/wireguard-tui/install-manifest` with `method=package` so the in-app
+updater refuses to replace package-owned files and names the package-manager
+command instead. AUR (`wireguard-tui.install`), RPM (`%post`), Alpine (`.post-install`)
+and Void (`INSTALL`) warn when an `install.sh` copy under `/usr/local` shadows
+the package and print the `wireguard` group setup the polkit rule needs.
 
 ## Tarballs, updates and other formats
 
@@ -113,9 +142,11 @@ dependencies, and still installs runtime prerequisites/auth. It defaults to
 `/usr/local` plus sudoers and a launcher; `--no-desktop` skips the launcher.
 A direct root login requires `--allow-root` after verification.
 
-Prefer package-manager upgrades for a distro-managed installation. The in-app
-updater invokes that source/prebuilt installer with `--no-desktop`; it does
-not update a package database and can create a parallel `/usr/local` install.
+Distro-managed installations update through their package manager: the in-app
+updater detects package ownership and refuses with the matching command. For
+`install.sh` installations it re-runs the verified release installer with the
+prefix, authorization mode and desktop choice recorded at install time; see
+[DISTROS.md](../docs/DISTROS.md#install-records-updates-and-rollback).
 There is no supplied Flatpak because system helper/network administration does
 not fit this project's current sandbox model. See [SECURITY.md](../SECURITY.md)
 for the privilege boundary and [RELEASES.md](../docs/RELEASES.md) for signatures.
