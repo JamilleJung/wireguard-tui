@@ -228,7 +228,7 @@ pub fn run_setup() -> i32 {
         .any(|c| c.name == "Privileged helper" && !matches!(c.status, doctor::Status::Ok));
     if helper_missing {
         println!("The privileged helper isn't installed. Install the packaged build");
-        println!("(.deb / AUR / COPR) or run ./install.sh from the source tree.");
+        println!("(.deb or your distribution's package) or run ./install.sh from the source tree.");
         println!();
     }
 

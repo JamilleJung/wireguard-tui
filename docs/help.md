@@ -1,235 +1,382 @@
 # WireGuard, explained
 
-A guide to WireGuard concepts and the wg-tui keyboard workflow. Press `?` for
-the key map. The source documentation is updated independently of published
-binaries, which embed the guide as it existed when they were built.
+A friendly guide to what WireGuard is, what every field means, and how to
+drive wg-tui. You don't need to be a network engineer: read the first two
+sections and you can set up a tunnel. (Press `?` for the key map; this page
+is the *concepts*.)
 
-## 1. Interfaces and peers
+This guide is built into the app, so a published binary shows the version
+that existed when it was built.
 
-A WireGuard interface is a virtual network interface on this machine. It has a
-private key and may have an address, listen port, DNS settings, and several
-peers. Each peer is another WireGuard participant, identified by its public key.
-A client often has one peer (a VPN gateway); a server can have many.
+---
 
-When you activate a config with `Enter` or `a`, wg-quick creates the interface
-and applies routing and other settings. "Active" means that interface is up.
-A successful handshake and traffic counters are better evidence that a peer
-is reachable. An idle peer need not have a very recent handshake.
+## 1. The 60-second mental model
 
-The app manages plain files in `/etc/wireguard`; it does not register a peer on
-your server or provider. Both ends still need compatible keys and routing.
+A WireGuard tunnel is an encrypted link between two machines. Think of it as
+a private cable plugged in between you and a server: whatever goes through
+the cable is encrypted, and to the rest of the network it looks like it comes
+from the machine at the other end.
 
-## 2. Keys and secrets
+Each tunnel has two halves:
 
-Each interface has a private/public key pair. Keep the private key secret;
-share the public key with the other endpoint. The other endpoint must have
-your public key in its peer list, and you must have its public key in yours.
-The optional preshared key is an extra shared secret and must match at both
-ends. `g` generates a keypair and PSK; importing a provider config usually
-supplies keys that are already registered.
+- The Interface = you (this machine). It has a private key, an address
+  inside the tunnel, and optionally DNS servers to use while connected.
+- The Peer = the other machine (usually your VPN server). It has a public
+  key, a public address to reach it at (the endpoint), and a list of which
+  traffic should go through it (AllowedIPs).
 
-A QR code or exported config includes the private key. Screenshots, generated
-key popups, running config, ZIP backups, and clipboard history can expose
-secrets. Copy only what you intend to share.
+A client usually has one peer. A server can have many.
 
-## 3. Config fields
+When you activate a tunnel (`Enter` or `a`), wg-quick creates the interface
+and sets up routing. "Active" means that interface is up - not yet that the
+other side is answering. The two halves prove who they are with a quick
+cryptographic hello, the handshake, and then traffic flows. A recent
+handshake and growing traffic counters are the real evidence that a peer is
+reachable. If something seems off, press `D` (Diagnose).
 
-Interface fields:
+The app manages plain files in `/etc/wireguard`. It does not register you on
+your server or provider: both ends still need each other's keys and
+matching routing.
 
-- Name: the Linux interface/config name, such as `home`; up to 15 ASCII
-  characters, letters/digits first, then letters/digits/`_`/`-`/`.`. No `..`
-  or `.conf` suffix.
-- PrivateKey: this interface's secret key.
-- Address: this machine's tunnel IP/CIDR, such as `10.100.0.17/24`; use the
-  address assigned by the server, not an arbitrary LAN address.
-- DNS: optional servers or search domains for wg-quick to apply. A working
-  `resolvconf` command is required; `doctor` checks integration.
-- ListenPort: optional UDP port (automatic if omitted/zero).
-- MTU: optional interface packet size; usually leave it automatic.
+---
 
-Peer fields:
+## 2. The keys (this is the whole security model)
 
-- PublicKey: the remote peer's public key.
+WireGuard uses public-key cryptography. Every interface has a key pair:
+
+- Private key: your secret. It stays on this machine and you never share
+  it.
+- Public key: derived from the private key. You DO share this one; it is how
+  the other side recognizes you.
+
+The rule is symmetric: the server must have your public key in its peer
+list, and you must have the server's public key in yours. If the server
+doesn't know your public key, it silently ignores your handshakes - a very
+common cause of "it won't connect".
+
+- Preshared key (PSK): an optional extra shared secret on top, for
+  belt-and-braces. If your config has one, the other end must have the
+  exact same PSK, or the handshake fails.
+
+`g` shows a fresh key pair and PSK. Most of the time you won't need it:
+import a config from your provider or server (for example wg-easy) and the
+keys are already filled in and already registered on the server.
+
+Secrets leak through pictures too. A QR code, an exported config, a ZIP
+backup, the running config, the `g` popup, screenshots and clipboard history
+can all contain private keys. Copy and show only what you mean to share.
+
+---
+
+## 3. Every field, in plain words
+
+Interface (you):
+
+- Name: the Linux interface and file name, for example `home`. Up to 15
+  ASCII characters; starts with a letter or digit, then letters, digits,
+  `_`, `-` or `.`. No `..` and no `.conf` suffix.
+- PrivateKey: this interface's secret key (see above).
+- Address: your IP inside the tunnel, for example `10.100.0.17/24`. Use the
+  address your server assigned, not your normal LAN address.
+- DNS: optional DNS servers or search domains to use while connected, for
+  example `1.1.1.1`. wg-quick needs a working `resolvconf` command for this;
+  `wg-tui doctor` checks it.
+- ListenPort: optional UDP port. Leave it out (or 0) for automatic.
+- MTU: optional packet size. Usually leave it automatic; lowering it can help
+  on flaky links.
+
+Peer (the other side):
+
+- PublicKey: the other side's public key.
 - PresharedKey: optional extra secret, identical at both ends.
-- Endpoint: a reachable `host:port`, or `[IPv6-address]:port`. A peer can learn
-  a roaming endpoint after authenticated traffic.
-- AllowedIPs: destination prefixes sent to this peer, and source prefixes
-  accepted from it. `0.0.0.0/0` covers all IPv4; `::/0` covers all IPv6. A
-  specific prefix such as `10.100.0.0/24` is a split tunnel. IPv4-only full
-  routing does not automatically route IPv6 through the VPN.
-- PersistentKeepalive: optional interval in seconds (`25` is a common NAT
-  traversal setting); `off` disables it.
+- Endpoint: where to reach it, `host:port` or `[IPv6-address]:port`, for
+  example `vpn.example.com:51820`. This is the one address that travels over
+  your normal internet. A peer can also learn a roaming endpoint from
+  authenticated traffic.
+- AllowedIPs: which destinations are sent into the tunnel to this peer, and
+  which source addresses are accepted from it.
+  - `0.0.0.0/0` = full tunnel for IPv4: all IPv4 traffic goes through the
+    VPN. `::/0` does the same for IPv6.
+  - `10.100.0.0/24` = split tunnel: only that subnet uses the VPN; the rest
+    stays on your normal connection.
+  - IPv4-only full routing does not send your IPv6 traffic through the VPN.
+- PersistentKeepalive: send a tiny packet every N seconds to keep the path
+  open through NAT and firewalls. `25` is a common choice behind a home
+  router; `off` disables it.
 
-Inline `#` comments and repeated Address/DNS/AllowedIPs lines are supported.
-The helper refuses to save root script hooks such as PostUp. An administrator
-who needs those must manage the file directly.
+Inline `#` comments and repeated Address, DNS and AllowedIPs lines are fine.
+The helper refuses to save root script hooks (PreUp, PostUp, PreDown,
+PostDown), because they would run as root. An administrator who needs them
+must manage that file directly.
+
+---
 
 ## 4. Driving wg-tui
 
-All keys work without a mode switch. "Advanced" in `?` groups operations; `m`
-does not toggle anything.
+Every key works all the time; there is no mode switch. "Advanced" in the `?`
+key map is only a heading, and `m` does nothing.
 
-- `i`: import a config or QR image. `n`: generate a preset and edit raw text.
-- Up/Down: select a tunnel. `Enter`/`a`: activate/deactivate.
-- `h`/`l`: choose a detail field. `y`: copy it. `]`/`[`: jump to the next or
-  previous peer. PgDn/PgUp: scroll the detail pane (it also follows the
-  focused field).
-- `e`: edit in $VISUAL, then $EDITOR, then nano. Quoted editor arguments work
-  without shell expansion; a private draft directory is cleaned on return.
-  `+`: add a peer in the editor.
-- `g`: generate keys. `c`: running config. `p`: save live state.
-- `s`: systemd start-on-boot. `Q`: QR. `R`: rename. `d`: delete. `x`: export all.
-- `K`: temporary host-output kill switch (one managed tunnel at a time); when
-  it is on but not in force, `K` offers repair or turning it off. `D`:
-  connection diagnostics.
-- `Tab`: Log. `B`: Backup manager. `w`: changelog. `A`: About. `q`/Esc: quit.
+Get a tunnel in:
+
+- `i`: import a `.conf` or a QR image (PNG/JPEG) with the file browser. The
+  usual way. `Space` marks several files, `Enter` imports.
+- `n`: new tunnel from a preset (Interface only, Full tunnel, Split tunnel).
+  A private key is created for you, then your editor opens so you can add the
+  address and the peer's public key and endpoint.
+
+Day to day:
+
+- Up/Down (or `k`/`j`): select a tunnel. `Enter`/`a`: connect/disconnect.
+- `h`/`l` (Left/Right): focus a detail field. `y`: copy it.
+- `]`/`[`: jump to the next/previous peer. PgDn/PgUp: scroll the detail
+  pane (it also follows the focused field).
+- `s`: start on boot (systemd). `Q`: show the config as a QR code.
+- `D`: diagnose the connection.
+
+Advanced (still always available):
+
+- `e`: edit the raw config in $VISUAL, then $EDITOR, then nano. Quoted editor
+  arguments work, without shell expansion. `+`: add a peer section in the
+  editor. `E`: reopen a draft you set aside (see section 7).
+- `g`: generate keys. `c`: running config. `p`: save the live state to the
+  `.conf`.
+- `K`: kill switch on/off/repair (section 6). `R`: rename. `d`: delete.
+  `x`: export everything.
+
+Elsewhere:
+
+- `Tab`: the Log tab. `B`: the Backup manager. `H`: this guide. `w`: what's
+  new. `A`: about. `u`: install a detected update. `r`: refresh.
 - `?`: the key map. It scrolls with Up/Down, PgUp/PgDn and `g`/`G`; any other
   key closes it.
-- `E`: reopen an unsaved draft you set aside (see below).
+- `q`/Esc: quit. Ctrl+C works everywhere.
 
-On the Log tab, `y`/Enter copies the current line or selection, `v` starts a
-selection, `Y` copies the filtered log, `/` filters, `t` selects this tunnel,
-`f` follows, `c` clears the view, `r` reloads, and `w` saves the full fetched
-log to a file, regardless of view filters. `g`/Home
-and `G`/End move to top/bottom; `h`/`l` scroll horizontally. Esc first cancels a
-visual selection. Visual mode freezes its log snapshot so incoming entries do
-not shift the copied range. In Backup, `n` creates, Enter/`r` restores, `d` deletes, and
-`x` exports the selected archive. Restore/delete ask for confirmation.
+---
 
-Copy tries native clipboard tools before OSC 52. Across SSH, the local terminal
-must allow OSC 52 when that fallback is used; a successful remote clipboard
-helper can target the remote display instead.
+## 5. Is my tunnel OK?
 
-Editing an active tunnel attempts WireGuard-level live sync. Address, DNS,
-MTU, and routing changes still need reconnecting; a changed FwMark is refused
-by live sync and always needs a reconnect. If live sync fails after the file
-was saved, a popup says that the saved file and the running interface now
-differ and offers `s` retry sync, `c` reconnect, or `k` keep as is.
+WireGuard is a polite protocol: it only handshakes when it has something to
+send. A peer without PersistentKeepalive can go hours without a handshake and
+be perfectly fine. So an old handshake on a quiet tunnel isn't a funeral,
+it's a nap.
 
-Your edited text is never thrown away. If it does not validate, or the helper
-cannot save it (permission, busy lock, timeout, I/O error), a popup offers `r`
-retry (save failures only), `e` re-edit with your text, `d` discard (asks
-again), or Esc to keep the draft for later; `E` reopens it.
-
-After connect, disconnect, rename, delete, start-on-boot and kill-switch
-changes the app re-reads the real state (interface list, saved names,
-service and firewall status) instead of trusting the helper's exit status, and
-reports a mismatch. A helper timeout means the outcome is unknown: the app
-re-checks and shows what actually happened, or says that it could not tell.
-
-Rename stops an active interface without reactivating it; restoring a backup
-updates files without syncing running interfaces. Backup preflight requires an
-owned single-link regular ZIP and is complete before writes: 64 MiB archive,
-4096 entries, 1024 configs, 1 MiB per config and 16 MiB total text. Before the
-first write, restore keeps a copy of every config it will overwrite. If a later
-write fails, it rolls back: previous contents are put back and tunnels the
-restore created are removed again. The report names each tunnel, and any
-rollback step that failed.
-
-## 5. When a tunnel is active but traffic stalls
-
-WireGuard only handshakes when it has something to send. A peer without
-PersistentKeepalive can go hours without a handshake and be fine, so an old
-handshake alone does not mean the VPN is broken. Each peer gets a health state
-from its handshake age, the traffic counters between refreshes, its keepalive
-and the time since activation:
+Each peer gets its own health state, worked out from its handshake age, the
+traffic counters between refreshes, its keepalive and the time since the
+tunnel came up:
 
 - Healthy: a handshake in the last 180 seconds.
-- Connecting: handshake attempts in progress (just activated or just sending).
-- No traffic: up, no handshake yet, and nothing has been sent.
-- Idle: the last handshake is old because nothing needed to be sent.
-- Handshake stale: traffic or the keepalive should have renewed it by now.
+- Connecting: handshake attempts in progress (just activated, or just
+  started sending).
+- No traffic: up, no handshake yet, and nothing has been sent that would
+  start one.
+- Idle: the last handshake is old because nothing needed to be sent. Normal.
+- Handshake stale: traffic or the keepalive should have renewed the
+  handshake by now.
 - Connection failed: sending without any answer for longer than WireGuard
   retries (90 seconds), or a keepalive that never got a handshake.
 
-The interface line shows the most severe peer; each peer shows its own state.
+The interface line shows the most severe peer; each peer shows its own
+state. Only "Handshake stale" and "Connection failed" mean trouble.
 
-Press `D` to check clock synchronization, interface state, handshake health,
-endpoint ping, and DNS lookup. These are diagnostic clues, not a proof of
-end-to-end service health. ICMP ping can be blocked while WireGuard UDP works.
-Check both public keys, matching PSK, endpoint/port, AllowedIPs, firewall and
-routing, and system time. An unsynchronized clock is named only as one
-possible cause, and only when handshakes are actually failing.
+Press `D` to check clock sync, the interface, handshake health, an endpoint
+ping and a DNS lookup. These are clues, not proof of end-to-end health: ICMP
+ping can be blocked while WireGuard's UDP works fine. When handshakes fail,
+check both public keys, a matching PSK, the endpoint and port, AllowedIPs,
+firewall and routing, and the system time. An unsynchronized clock is named
+only as one possible cause, and only when handshakes are actually failing.
 
-When the kill switch is on but its firewall rules are gone (for example after
-a firewall reload) or no longer match the tunnel, the detail pane and footer
-say so and the app runs a repair once per detected loss. Repeated losses are
-spaced out by a growing delay; a failed repair is not retried automatically.
+---
 
-Avoid having two tools manage the same interface at once. The kill switch is temporary host-output policy, not a daemon or server NAT
-setup. It requires an active interface and full firewall tools; only one
-managed switch is supported. nft uses one batch; fallback commits are atomic
-per IPv4/IPv6 family, not across both families. App exit does not
-clear it; app deactivation/delete/rename attempts cleanup. Recheck after
-external service or firewall changes. Existing switches need off/on after an
-upgrade to install new rule logic.
+## 6. The kill switch
 
-## 6. Display themes and logging
+`K` on a connected tunnel turns on a temporary kill switch: traffic leaving
+this machine outside the tunnel is rejected. Loopback, the tunnel itself,
+WireGuard's own transport, IPv6 neighbor discovery, DHCP and your current SSH
+session stay allowed, and your own firewall's deny rules still apply.
 
-Choose a theme with `--theme NAME` or `WG_TUI_THEME=NAME`:
+- It needs an active interface and full firewall tools (nftables, or
+  iptables with iptables-restore, plus ip6tables when IPv6 is present).
+- Only one tunnel can own the kill switch at a time.
+- It is not a daemon and not server NAT setup: it is temporary host-output
+  policy. A reboot clears it; quitting the app does not. Disconnect, delete
+  and rename try to clean it up.
+- nftables changes are one batch; the iptables fallback commits each family
+  (IPv4, IPv6) atomically, but not both together.
+
+If the switch is on but its firewall rules are gone (for example after a
+firewall reload) or no longer match the tunnel, the detail pane and footer
+say so, and the app runs one repair per detected loss. Repeated losses are
+spaced out by a growing delay; a failed repair is not retried on its own.
+Pressing `K` then offers `r` repair now, `o` turn it off, or Esc cancel.
+
+A kill switch built by an older release shows as a mismatch and is rebuilt
+in the new layout. Recheck the status after changing firewall or system
+services yourself.
+
+---
+
+## 7. Editing safely
+
+Editing an active tunnel saves the file, then applies the WireGuard settings
+live, so the connection isn't dropped. Address, DNS, MTU and routing changes
+still need a reconnect. A changed FwMark is refused by the live sync and
+always needs a reconnect. If the live sync fails after the file was saved, a
+popup says the saved file and the running interface now differ and offers
+`s` retry sync, `c` reconnect, or `k` keep as is.
+
+Your edited text is never thrown away. If it does not validate, or the
+helper cannot save it (permission, busy lock, timeout, I/O error), a popup
+offers:
+
+- `r`: retry the save (save failures only)
+- `e`: re-edit, starting from your text
+- `d`: discard (it asks once more)
+- Esc: keep the draft for later; `E` reopens it.
+
+After connect, disconnect, rename, delete, start-on-boot and kill-switch
+changes, the app re-reads the real state (interfaces, saved names, service
+and firewall status) instead of trusting the helper's exit status, and tells
+you if they disagree. A helper timeout means the outcome is unknown: the app
+re-checks and shows what actually happened, or says it could not tell.
+
+Rename stops an active interface and leaves it stopped.
+
+---
+
+## 8. Backups, logs and copying
+
+Backups (`B`): `n` creates a ZIP of every tunnel, Enter/`r` restores, `d`
+deletes, `x` copies the selected archive to your home directory. Restore and
+delete ask first. Backups are shared with the desktop app and contain
+unencrypted private keys.
+
+A restore checks the whole archive before it writes anything, keeps a copy of
+every config it will overwrite, and then saves one by one. If a later save
+fails, it rolls back: the old contents go back and tunnels the restore
+created are removed again. The report names each tunnel, and any rollback
+step that failed. A restore updates files but does not sync running
+interfaces.
+
+Log tab (`Tab`):
+
+- `y`/Enter copies the current line or the selection; `v` starts a
+  selection (Esc cancels it first); `Y` copies the whole filtered log.
+- `/` filters, `t` shows only this tunnel, `f` follows new lines.
+- `g`/Home and `G`/End jump to top/bottom; `h`/`l` scroll sideways.
+- `c` clears the view (not the journal), `r` reloads, `w` saves the full
+  fetched log to a file, regardless of the view filters.
+
+A visual selection freezes its log snapshot, so incoming lines cannot shift
+the copied range.
+
+Copying tries native clipboard tools first and OSC 52 last. Over SSH, the
+local terminal must allow OSC 52 when that fallback is used, and a working
+remote clipboard tool may target the remote display instead.
+
+---
+
+## 9. Themes and the debug log
+
+Pick a theme with `--theme NAME` or `WG_TUI_THEME=NAME`:
 
 - `default`: the standard colours.
 - `high-contrast`: bright text, no dark grey, a yellow selection bar.
-- `ascii`: only ASCII characters (`+-|` borders, no arrows or ellipses; the QR
-  code uses `##` or coloured spaces).
+- `ascii`: only ASCII characters (`+-|` borders, no arrows or ellipses; the
+  QR code uses `##` or coloured spaces).
 
 A non-empty `NO_COLOR` turns colours off in every theme; selection and state
-then use bold, reverse video and underline. Below 24x6 the app shows only a
-"terminal too small" note; narrow terminals stack the list above the details.
+then use bold, reverse video and underline. Below 24x6 the app only shows a
+"terminal too small" note, and narrow terminals stack the list above the
+details.
 
 For troubleshooting, `WG_TUI_LOG=/path/file` appends `key=value` lines to a
 private file, and `--debug` writes them to stderr (redirect it, for example
 `wg-tui --debug 2>wg-tui.log`). Keys are removed before anything is written.
 
-## 7. Prerequisites and updates
+---
 
-`wg-tui doctor` is read-only; unknown/unverified prerequisites are warnings.
-`setup` offers confirmed tools/resolver repairs.
-Start-on-boot needs systemd, logs need journald, and DNS lines need resolvconf
-integration. The app does not bundle WireGuard tools or kernel modules.
+## 10. Prerequisites and updates
 
-At startup, the app may contact GitHub to check for a newer release. `u`
-installs only a detected update, verifies it against the compiled-in signing
-key and exact checksum, and asks you to restart. It does not force a fresh
-check. Disable checking with WG_NO_UPDATE_CHECK=1 or a no-update file under
-$XDG_CONFIG_HOME/wireguard-tui (default ~/.config/wireguard-tui). Distro-package
-users should prefer their package manager; the in-app installer uses the source
-installation layout.
+`wg-tui doctor` is a read-only checklist; anything unknown or unverified is a
+warning. `wg-tui setup` offers confirmed repairs for tools and the resolver.
+Start-on-boot needs systemd, the Log tab needs journald, and DNS lines need
+resolvconf integration. The app does not bundle WireGuard tools or kernel
+modules.
 
-## Audited input and operation limits
+At startup the app may contact GitHub to check for a newer release. `u`
+installs only an update it already detected: it verifies the download
+against the signing key compiled into the app and an exact checksum, then
+asks you to restart. It does not force a fresh check. Turn checking off with
+WG_NO_UPDATE_CHECK=1 or a `no-update` file in $XDG_CONFIG_HOME/wireguard-tui
+(default ~/.config/wireguard-tui). Updates keep the prefix and authorization
+mode the installer recorded. If a distro package installed the app, use your
+package manager instead.
 
-Imported config files and external-editor output must be regular files at most
-1 MiB. Config, QR and backup files share one open routine: non-blocking open
-(and no symlinks for private files and backups), a check on the opened file,
-then a bounded read. Named pipes, sockets, devices and directories are
-rejected without waiting for a writer.
+---
+
+## 11. Gotchas worth knowing
+
+- "Active, but nothing loads." The interface is up, but the handshake isn't
+  completing, so no real traffic flows. Usual suspects: the server doesn't
+  have your public key, the endpoint or port is wrong or unreachable, or the
+  PSK doesn't match. A clock that is not synced is one more possible cause.
+  `D` helps narrow it down.
+- Don't manage the same tunnel from two places (for example NetworkManager
+  and wg-tui). They'll fight. Pick one.
+
+---
+
+## Audited limits (for the curious)
+
+Imported config files and external-editor output must be regular files of
+at most 1 MiB. Config, QR and backup files share one open routine:
+non-blocking open (and no symlinks for private files and backups), a check
+on the opened file, then a bounded read. Named pipes, sockets, devices and
+directories are refused without waiting for a writer.
 
 Config fields are validated on every occurrence, including canonical key pad
-bits, CIDR/keepalive bounds and exact section/field placement. Valid comments,
-repeated fields, scoped IPv6 and supported Table/FwMark/SaveConfig options remain
-available; unknown fields cannot be saved just because they remain in raw text.
-QR import uses at most 32 MiB source files and 4096 × 4096 dimensions with a
-configured 128 MiB decoder budget, and requires one distinct valid tunnel.
+bits, CIDR/keepalive bounds and exact section/field placement. Comments,
+repeated fields, scoped IPv6 and the supported Table/FwMark/SaveConfig
+options remain available; an unknown field cannot be saved just because it
+stays in the raw text.
 
-Release helpers must be trusted installed/adjacent executables with protected
-ancestry; install a verified user-owned bundle before using its helper. Debug
-helper overrides do not grant authorization. Background reads check polkit
-without password dialogs; explicit mutations can use a desktop agent. A failed
-status refresh preserves prior data rather than inventing an inactive state.
+QR import accepts source files up to 32 MiB and images up to 4096x4096, with
+a 128 MiB decoder budget, and needs exactly one distinct valid tunnel. The
+image is decoded in a short-lived child process with a memory limit and a
+deadline, so a hostile image can only fail its own import.
 
-Mutations are serialized by a bounded helper lock. Failed/unknown stops retain
-kill-switch protection and report errors; inspect state before retrying. A
-90-second UI helper deadline bounds waiting, not rollback of already completed
-network changes. Local key generation is bounded separately.
+Backup restore requires an owned, single-link, regular ZIP and checks it
+completely before writing: at most 64 MiB per archive, 4096 entries, 1024
+configs, 1 MiB per config and 16 MiB of config text in total.
 
-Verified update bundles own their private staging directory, check all required
-assets before privilege escalation, reject a non-newer version at download time,
-and clean staging after completion/failure. Success reports the actual verified
-version. Restart after installing, and prefer the package manager for a packaged
-installation.
+Release builds only use a trusted installed or adjacent helper with
+protected parent directories; install a verified bundle before using a
+user-owned extracted one. Debug helper overrides do not grant authorization.
+Background reads check polkit without password dialogs; explicit changes can
+use a desktop authentication agent. A failed status refresh keeps the
+previous data instead of inventing an inactive state.
 
-Helper-backed tunnel/config/import/backup/key-generation actions use serialized
-workers; conflicting actions are blocked while busy. The external editor and
-update installer deliberately take the foreground. Backup actions return to
-the main screen; B reopens the manager. Quitting does not undo an operation
-already started. Quoted editor arguments are parsed without shell expansion.
+Changes are serialized by a bounded helper lock. A failed or unknown stop
+keeps kill-switch protection and reports the error; check the state before
+retrying. The 90-second helper deadline bounds the waiting, not the rollback
+of network changes that already happened. Local key generation has its own
+shorter deadline.
+
+Verified update bundles own their private staging directory, check every
+required file before asking for privilege, refuse a version that is not
+newer, and clean up after success or failure. Success reports the version
+actually verified.
+
+Helper-backed actions (tunnels, configs, imports, backups, key generation)
+run on serialized background workers; a conflicting action is refused while
+another runs. The external editor and the update installer take the
+foreground on purpose. Backup actions return to the main screen; `B`
+reopens the manager. Quitting does not undo an operation already started.
+
+---
+
+Your configs live in `/etc/wireguard`, and everything that needs root goes
+through one small helper that runs `wg`, `wg-quick` and friends. Apart from
+your tunnels, the app only reaches out to the network for the optional
+update check (and the update download), and for the ping and DNS lookup that
+`D` runs when you ask.

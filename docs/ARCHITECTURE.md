@@ -1,80 +1,74 @@
-# Architecture
+# 🏗️ Architecture
 
-This document describes how `wireguard-tui` is put together, where the
-privilege boundary is, and how data moves between the terminal UI, the
-privileged helper and the system. Read it before changing anything under
-`src/bin/wg-helper/`, `src/backend/` or the installer.
+How `wireguard-tui` is put together, where the privilege boundary is, and how
+data moves between the terminal UI, the privileged helper and the system.
+Read it before changing anything under `src/bin/wg-helper/`, `src/backend/`
+or the installer. (The diagrams are mermaid; GitHub renders them for you.)
 
-## Processes
+## 🧩 Processes
 
 | Binary | Runs as | Source |
 | --- | --- | --- |
 | `wg-tui` | the logged-in user | `src/main.rs` and the modules below |
 | `wg-helper` | root (via sudo, pkexec, or directly when already root) | `src/bin/wg-helper/` |
 
-`src/config.rs`, `src/validation.rs` and `src/secrets.rs` are compiled into
-both binaries, so the frontend and the helper validate and redact configs with
-the same code. The helper is the authority: the frontend validates to give
-early feedback, the helper validates again before anything touches
-`/etc/wireguard`.
+`src/config.rs` and `src/secrets.rs` are compiled into both binaries, so the
+frontend and the helper validate and redact configs with the same code.
+Tunnel names are checked by `src/validation.rs` in the frontend and by
+`name_ok()` in the helper; a property test (`tests/prop_names.rs`) checks that
+the two agree on every random name. The helper is the authority: the frontend
+validates to give early feedback, the helper validates again before anything
+touches `/etc/wireguard`.
 
-## Frontend modules
+QR images are decoded by a third, short-lived process: `wg-tui` re-runs its
+own executable as a decoder child (`src/qr_isolate.rs`) with a memory limit
+and a deadline, so a crash or hang in the image or QR libraries only fails
+that one import.
+
+## 🗂️ Frontend modules
 
 | Module | Responsibility |
 | --- | --- |
-| `main.rs` | entry point: CLI parsing, terminal setup, event loop |
-| `cli.rs` | command-line flags (`--theme`, `--debug`, subcommands) |
-| `state.rs` | `App` state: tunnels, selection, popups, drafts, health trackers |
+| `main.rs` | entry point: module layout, CLI dispatch, terminal setup |
+| `cli.rs` | command-line flags (`--theme`, `--debug`, subcommands), `doctor` / `setup` output |
+| `runtime.rs` | event loop, background poller, startup update check, editor/update hand-offs |
+| `state.rs` | `App` state: tunnels, selection, popups, drafts, health trackers; folds in background results |
 | `input.rs`, `keymap.rs` | key handling; one key table that also builds the help text |
-| `actions.rs` | user actions that start background operations |
-| `ops.rs` | operation state machine (Idle → Running → Succeeded / Failed / Unknown → reconciled); refuses overlapping mutations |
+| `actions.rs` | user actions that start background operations and verify them afterwards |
+| `ops.rs` | operation state machine (Idle → Running → Finished → reconciled); refuses overlapping mutations; kill-switch repair policy |
 | `editor.rs` | external-editor drafts (private temp dir, draft recovery) |
-| `runtime.rs` | worker threads and the result channel |
 | `ui/` | rendering: list, detail pane, popups, log view; layout breakpoints for small terminals |
 | `theme.rs` | default, high-contrast and ASCII themes; `NO_COLOR` |
 | `backend.rs`, `backend/` | everything that talks to the helper or reads user files: `helper.rs` (invocation, typed `HelperError`, pkcheck), `backup.rs` (ZIP export/restore with rollback), `qr.rs`, `health.rs` (per-peer health classification), `diagnostics.rs` |
+| `import_parse.rs` | pure backup-ZIP and QR parsing with limits (shared with the fuzz targets and property tests) |
+| `qr_isolate.rs` | the isolated QR decoder child process |
 | `safe_file.rs` | the one routine for opening user-supplied files (no blocking on FIFOs/devices, regular files only, size limits) |
 | `logging.rs` | opt-in structured debug log (`WG_TUI_LOG`, `--debug`), always redacted |
 | `doctor.rs` | `wg-tui doctor` environment checks |
 | `update.rs` | self-update that preserves the install method and authorization mode |
 
-## Data flow of an edit
+## 🔐 Privilege boundary
 
-```
-user edits in $EDITOR ─► draft (0600, private temp dir)
-  ─► validate (frontend)          fail → draft kept: Retry / Re-edit / Discard
-  ─► helper save NAME < config    fail/timeout → draft kept, state re-read
-       └ helper: validate, backup old file, stage+fsync+rename, read back
-  ─► helper sync NAME (if running)
-       └ keeps runtime FwMark/ListenPort, refuses FwMark changes,
-         re-checks the kill switch
-                                  fail → "saved file and running tunnel
-                                  differ": retry sync / reconnect / keep
-  ─► refresh: list, active, dump, kill switch status (the observed state wins)
-```
-
-## Health
-
-`backend/health.rs` classifies each peer from successive `wg show dump`
-snapshots: handshake age, rx/tx deltas, persistent keepalive and time since
-activation. WireGuard only handshakes when there is traffic, so an old
-handshake on a quiet tunnel is **Idle**, not a failure. **Handshake stale**
-and **Connection failed** require traffic being sent without a fresh
-handshake. The system clock is mentioned only as a possible cause, and only
-when handshakes are actually failing.
-
-## Privilege boundary
-
-```
- user session                         │ root
-                                      │
- frontend (wg-tui)              │  wg-helper  (one verb per run)
-   ├─ reads/writes user files         │    ├─ /etc/wireguard/*.conf   (0600, root)
-   │  (imports, exports, backups      │    ├─ /etc/wireguard/.backup/ (per-save copies)
-   │   under $XDG_DATA_HOME)          │    ├─ /etc/wireguard/.helper.lock
-   └─ runs the helper through ────────┼──► ├─ /run/wg-helper/killswitch (requested switch)
-      sudo -n │ pkexec │ directly     │    └─ wg, wg-quick, nft, iptables*, systemctl,
-      (stdin: config text only)       │       journalctl, logger  (fixed paths, empty env)
+```mermaid
+flowchart LR
+    subgraph user["👤 user session"]
+        TUI["wg-tui<br/>(frontend)"]
+        FILES[("imports, exports, backups<br/>under $XDG_DATA_HOME")]
+        QR["QR decoder child<br/>(memory limit, deadline)"]
+        TUI <--> FILES
+        TUI -- "image bytes on stdin" --> QR
+    end
+    subgraph root["👑 root"]
+        H["wg-helper<br/>one verb per run"]
+        CONF[("/etc/wireguard/*.conf<br/>0600, root")]
+        BAK[("/etc/wireguard/.backup/<br/>per-save copies")]
+        LOCK[("/etc/wireguard/.helper.lock")]
+        RUN[("/run/wg-helper/killswitch<br/>requested switch")]
+        TOOLS["wg · wg-quick · nft · iptables* ·<br/>systemctl · journalctl · logger<br/>fixed paths, cleared env"]
+        H --> CONF & BAK & LOCK & RUN
+        H --> TOOLS
+    end
+    TUI == "sudo -n · pkexec · directly if root<br/>argv: VERB [NAME [NAME]]<br/>stdin: config text only" ==> H
 ```
 
 The frontend never runs a WireGuard or firewall tool as root itself. It runs
@@ -85,7 +79,8 @@ The frontend never runs a WireGuard or firewall tool as root itself. It runs
 2. takes the shared mutation lock (`/etc/wireguard/.helper.lock`, bounded
    wait) for every mutating verb, so the TUI and GUI cannot interleave;
 3. runs tools only from `/usr/sbin:/usr/bin:/sbin:/bin` with a cleared
-   environment, bounded output, and a deadline enforced from the parent;
+   environment (only a fixed `PATH` and `LC_ALL=C`), bounded output, and a
+   deadline enforced from the parent;
 4. opens configs with `O_NOFOLLOW | O_NONBLOCK`, requires an owned regular
    file with one link and no group/other write bit, and caps input at 1 MiB;
 5. validates configs and refuses `PreUp`/`PostUp`/`PreDown`/`PostDown`
@@ -103,7 +98,82 @@ polkit rule scoped to the helper path and the `wireguard` group (see
 authentication dialog: with pkexec it first asks `pkcheck` without user
 interaction.
 
-## Helper modules
+## ✏️ Data flow of an edit
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as You
+    participant T as wg-tui
+    participant E as $EDITOR
+    participant H as wg-helper (root)
+    U->>T: e (edit)
+    T->>E: draft (0600, private 0700 temp dir)
+    E-->>T: edited text
+    T->>T: validate (frontend)
+    alt invalid
+        T-->>U: draft kept: Re-edit / Discard / keep for later
+    else valid
+        T->>H: save NAME (config on stdin)
+        Note over H: validate, back up old file,<br/>stage + fsync + rename, read back
+        alt save failed or timed out
+            T->>T: re-read the file on disk to decide
+            T-->>U: draft kept: Retry / Re-edit / Discard / keep for later
+        else saved, tunnel running
+            T->>H: sync NAME
+            Note over H: wg-quick strip, keep runtime FwMark/ListenPort,<br/>refuse FwMark changes, wg syncconf,<br/>re-check the mark and the kill switch
+            alt sync failed
+                T-->>U: "saved file and running tunnel differ":<br/>retry sync / reconnect / keep
+            end
+        end
+    end
+    T->>H: refresh: list, active, dump, kill switch status
+    Note over T: the observed state wins
+```
+
+Every background operation goes through the same small state machine in
+`ops.rs`. Only one runs at a time, and a finished one stays visible until the
+next live refresh has been applied, so the UI shows the re-queried state
+rather than the worker's own claim:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Running: begin (refused while Running)
+    Running --> Finished: Succeeded / Failed / Unknown
+    Finished --> Idle: next refresh applied (reconciled)
+```
+
+## 🩺 Health
+
+`backend/health.rs` classifies each peer from successive `wg show dump`
+snapshots: handshake age, rx/tx deltas, persistent keepalive and time since
+activation. WireGuard only handshakes when there is traffic, so an old
+handshake on a quiet tunnel is **Idle**, not a failure. **Handshake stale**
+and **Connection failed** require traffic being sent without a fresh
+handshake (or, for a keepalive peer, a handshake that is overdue or never
+came). The system clock is mentioned only as a possible cause, and only when
+handshakes are actually failing.
+
+```mermaid
+flowchart TD
+    A{handshake younger<br/>than 180 s?} -->|yes| HEALTHY([🟢 Healthy])
+    A -->|no| B{sending unanswered<br/>for ≥ 90 s?}
+    B -->|yes| FAILED([🔴 Connection failed])
+    B -->|no| C{any handshake<br/>at all?}
+    C -->|never| D{keepalive set, and up ≥ 90 s<br/>or already up at app start?}
+    D -->|yes| FAILED
+    D -->|no| E{sending, or<br/>keepalive set?}
+    E -->|yes| CONNECTING([🔵 Connecting])
+    E -->|no| NOTRAFFIC([🟡 No traffic])
+    C -->|old one| F{sending, or keepalive<br/>overdue by 180 s + interval?}
+    F -->|yes| STALE([🟠 Handshake stale])
+    F -->|no| IDLE([⚪ Idle])
+```
+
+The interface summary is the most severe peer state.
+
+## 🛠️ Helper modules
 
 | Module | Responsibility |
 | --- | --- |
@@ -117,23 +187,44 @@ interaction.
 | `firewall/iptables.rs` | iptables backend: dedicated `WGH-KILLSWITCH` chain |
 | `logging.rs` | structured, redacted journal records |
 
-## Kill switch data flow
+## 🛡️ Kill switch data flow
 
+```mermaid
+flowchart TD
+    S([killswitch-enable NAME]) --> O["observe()<br/>nft list table inet wg_helper_killswitch<br/>nft list chain inet filter output (older releases)<br/>iptables -S / ip6tables -S"]
+    O --> X{another tunnel<br/>owns a switch?}
+    X -->|yes| R1([refuse])
+    X -->|no| P["pick the backend: nftables if usable,<br/>else iptables (its tools must be installed)"]
+    P --> M["ensure_tunnel_has_fwmark(NAME)<br/>needs an active interface;<br/>wg show / wg set, never edits the saved file"]
+    M --> B{backend}
+    B -->|nftables| N["nft: one transaction<br/>replacing the dedicated table"]
+    B -->|iptables| I["iptables: --test both families,<br/>then commit each family"]
+    N --> L["remove leftovers of the other backend /<br/>older layout (only after install)"]
+    I --> L
+    L --> W["write /run/wg-helper/killswitch"]
+    W --> V{"decide() says<br/>enabled?"}
+    V -->|yes| OK([✅ done])
+    V -->|no| ERR([report the status it found])
 ```
-killswitch-enable NAME
-  observe()  ── nft list table inet wg_helper_killswitch
-             ── nft list chain inet filter output        (older releases)
-             ── iptables -S / ip6tables -S
-  refuse if another tunnel owns a switch
-  ensure_tunnel_has_fwmark(NAME)    (wg show/set; never edits the saved file)
-  install    nft: one transaction replacing the dedicated table
-             iptables: --test both families, then commit each family
-  remove leftovers of the other backend / older layout   (only after install)
-  write /run/wg-helper/killswitch
-  verify: decide() must say "enabled"
-```
+
+`killswitch-repair` runs the same install, but only for a tunnel whose switch
+was requested (marker) or still has complete rules. `killswitch-disable`
+clears the marker **first**, so a partial cleanup is never "repaired" back,
+then removes the rules from both backends.
 
 `decide()` (pure, unit-tested) turns what was observed into one status:
+
+```mermaid
+flowchart TD
+    A{complete rules for this tunnel?<br/>nft table, or iptables in<br/>every needed family} -->|yes| B{interface active, marks equal<br/>the runtime fwmark, and<br/>no leftovers elsewhere?}
+    B -->|yes| EN([🟢 enabled])
+    B -->|no| MM([🟡 mismatch])
+    A -->|no| C{complete rules in the<br/>older layout?}
+    C -->|yes| MM
+    C -->|no| D{any partial rules, or<br/>the marker names this tunnel?}
+    D -->|yes| MI([🟠 missing])
+    D -->|no| DI([⚪ disabled])
+```
 
 | Status | Meaning | Frontend reaction |
 | --- | --- | --- |
@@ -141,6 +232,10 @@ killswitch-enable NAME
 | `disabled` | no rules and no request | none |
 | `missing` | requested (marker) but rules gone or incomplete | run `killswitch-repair` |
 | `mismatch` | rules present but stale: mark differs, interface down, older layout or leftovers | run `killswitch-repair`; if the interface is down, report it |
+
+The frontend repairs automatically only on an active tunnel, once per
+detected loss, with a growing delay between repeated losses (`ops.rs`,
+`KillSwitchWatch`); a failed repair is not retried automatically.
 
 Why the rules look the way they do:
 

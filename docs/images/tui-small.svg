@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="526.8" height="435" viewBox="0 0 526.8 435" role="img" aria-labelledby="title description" font-family="SFMono-Regular,Menlo,DejaVu Sans Mono,monospace" font-size="15">
+<title id="title">wg-tui: A narrow terminal: the tunnel list stacks above the details</title>
+<desc id="description">Rendered from application code with a 58 by 22 Ratatui TestBackend and fictional data: example tunnel names, keys and documentation addresses. A narrow terminal: the tunnel list stacks above the details. No live system or network was accessed.</desc>
+<rect width="526.8" height="435" rx="8" fill="#181825"/>
+<text x="14.0" y="28.0" fill="#cdd6f4" textLength="498.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌ WireGuard - terminal ──────────────────────────────────┐</text>
+<text x="14.0" y="46.5" fill="#cdd6f4" textLength="17.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│ </text>
+<rect x="31.2" y="32.5" width="77.4" height="18.5" fill="#89dceb"/>
+<text x="31.2" y="46.5" fill="#11111b" font-weight="700" textLength="77.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> Tunnels </text>
+<text x="108.6" y="46.5" fill="#cdd6f4" textLength="404.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> │  Log                                       │</text>
+<text x="14.0" y="65.0" fill="#cdd6f4" textLength="498.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">└────────────────────────────────────────────────────────┘</text>
+<text x="14.0" y="83.5" fill="#cdd6f4" textLength="498.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌ Tunnels ───────────────────────────────────────────────┐</text>
+<text x="14.0" y="102.0" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<rect x="22.6" y="88.0" width="481.6" height="18.5" fill="#3557a3"/>
+<text x="22.6" y="102.0" fill="#f5f5ff" font-weight="700" textLength="481.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> * home                                                 </text>
+<text x="504.2" y="102.0" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="14.0" y="120.5" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="120.5" fill="#9399b2" textLength="25.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> - </text>
+<text x="48.4" y="120.5" fill="#cdd6f4" textLength="464.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">office                                               │</text>
+<text x="14.0" y="139.0" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="139.0" fill="#9399b2" textLength="25.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> - </text>
+<text x="48.4" y="139.0" fill="#cdd6f4" textLength="464.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">travel                                               │</text>
+<text x="14.0" y="157.5" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="157.5" fill="#9399b2" textLength="25.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> - </text>
+<text x="48.4" y="157.5" fill="#cdd6f4" textLength="464.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">lab-v6                                               │</text>
+<text x="14.0" y="176.0" fill="#cdd6f4" textLength="498.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">└────────────────────────────────────────────────────────┘</text>
+<text x="14.0" y="194.5" fill="#cdd6f4" textLength="498.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">┌ home ↓ PgUp/PgDn ──────────────────────────────────────┐</text>
+<text x="14.0" y="213.0" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="213.0" fill="#89dceb" font-weight="700" textLength="77.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Interface</text>
+<text x="100.0" y="213.0" fill="#cdd6f4" textLength="412.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                               │</text>
+<text x="14.0" y="231.5" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="231.5" fill="#9399b2" textLength="154.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Status          </text>
+<text x="177.4" y="231.5" fill="#a6e3a1" textLength="51.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Active</text>
+<text x="229.0" y="231.5" fill="#cdd6f4" textLength="283.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                │</text>
+<text x="14.0" y="250.0" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="250.0" fill="#9399b2" textLength="154.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Connection      </text>
+<text x="177.4" y="250.0" fill="#a6e3a1" textLength="266.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Healthy (recent handshake; last</text>
+<text x="444.0" y="250.0" fill="#cdd6f4" textLength="68.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">       │</text>
+<text x="14.0" y="268.5" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="268.5" fill="#a6e3a1" textLength="154.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">handshake 38s ago)</text>
+<text x="177.4" y="268.5" fill="#cdd6f4" textLength="335.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                      │</text>
+<text x="14.0" y="287.0" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="287.0" fill="#9399b2" textLength="154.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Speed           </text>
+<text x="177.4" y="287.0" fill="#cdd6f4" textLength="335.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">↓ 2.40 MiB/s   ↑ 312.00 KiB/s         │</text>
+<text x="14.0" y="305.5" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<rect x="22.6" y="291.5" width="103.2" height="18.5" fill="#3557a3"/>
+<text x="22.6" y="305.5" fill="#9399b2" textLength="103.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Public key</text>
+<text x="125.8" y="305.5" fill="#cdd6f4" textLength="387.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                            │</text>
+<text x="14.0" y="324.0" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<rect x="22.6" y="310.0" width="378.4" height="18.5" fill="#3557a3"/>
+<text x="22.6" y="324.0" fill="#cdd6f4" textLength="378.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">EXAMPLE+home+publ+key+not+real000000000000A=</text>
+<text x="401.0" y="324.0" fill="#cdd6f4" textLength="111.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">            │</text>
+<text x="14.0" y="342.5" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="342.5" fill="#9399b2" textLength="154.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Listen port     </text>
+<text x="177.4" y="342.5" fill="#cdd6f4" textLength="335.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">51820                                 │</text>
+<text x="14.0" y="361.0" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="361.0" fill="#9399b2" textLength="154.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  Addresses       </text>
+<text x="177.4" y="361.0" fill="#cdd6f4" textLength="335.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">192.0.2.10/32, 2001:db8:10::a/128     │</text>
+<text x="14.0" y="379.5" fill="#cdd6f4" textLength="8.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve">│</text>
+<text x="22.6" y="379.5" fill="#9399b2" textLength="154.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">  DNS             </text>
+<text x="177.4" y="379.5" fill="#cdd6f4" textLength="335.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve">192.0.2.1                             │</text>
+<text x="14.0" y="398.0" fill="#cdd6f4" textLength="498.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">└────────────────────────────────────────────────────────┘</text>
+<text x="14.0" y="416.5" fill="#9399b2" textLength="498.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> Up/Dn move  Enter on/off  n new  i import  d remove  Q qr</text>
+</svg>
