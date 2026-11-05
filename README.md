@@ -42,6 +42,26 @@ Prefer clicking things? 🖱️ The sibling
 **[wireguard-gui](https://github.com/JamilleJung/wireguard-gui)** is the same
 idea as a native desktop app.
 
+## 🎉 What's new in 1.10
+
+The "fewer surprises" release. Grab it from the
+**[v1.10.0 release page](https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.10.0)**.
+
+| | What changed | Why you'll like it |
+|---|---|---|
+| 🛡️ | **Kill switch, rebuilt** — its own nftables table / iptables chain, IPv6 Neighbor Discovery allowed | Never fights firewalld or your rules, your deny rules always win, and IPv6 endpoints stay reachable |
+| 🔁 | **Self-repairing kill switch** — `missing` / `mismatch` states plus automatic repair | A firewall reload no longer silently switches your protection off |
+| ✏️ | **Live edits keep the fwmark** — `wg syncconf` can't reset it any more | Editing a connected tunnel no longer breaks routing or the kill switch |
+| 🩺 | **Health per peer** — Healthy, Connecting, Idle, No traffic, Handshake stale, Connection failed | A quiet tunnel reads as *Idle*, not broken |
+| 📝 | **Drafts never vanish** — Retry / Re-edit / Discard, and restore rolls back on failure | A failed save or half-finished restore can't eat your work |
+| 🧪 | **QR images decoded in a sandbox child process** | A hostile image can't crash the app (found by fuzzing!) |
+| 🌗 | **Themes** — high contrast, ASCII, `NO_COLOR`, tiny-terminal layouts, scrollable help | Comfortable on any screen and any terminal |
+| 📦 | **Installer remembers** your method and auth mode, rolls back on failure, speaks SELinux, no more `pacman -Sy` | Updates keep your setup; a failed install leaves nothing half-done |
+
+Upgrading from 1.9.x? A kill switch built by the old version shows up as
+`mismatch` once and is rebuilt automatically. Everything else just works.
+The full list lives in the [changelog](CHANGELOG.md#1100---2026-11-05).
+
 ## 💡 Why does this exist?
 
 Because `wg`, `wg-quick`, `systemctl` and `journalctl` are wonderful tools that
@@ -184,11 +204,11 @@ no glibc version roulette:
 
 | Artifact | For | `uname -m` |
 |---|---|---|
-| `wireguard-tui-<version>-x86_64-linux.tar.gz` | 64-bit Intel/AMD | `x86_64` |
-| `wireguard-tui-<version>-i686-linux.tar.gz` | 32-bit Intel/AMD | `i686`, `i386` |
-| `wireguard-tui-<version>-aarch64-linux.tar.gz` | 64-bit ARM (Raspberry Pi 3/4/5, …) | `aarch64` |
-| `wireguard-tui-<version>-armv7-linux.tar.gz` | 32-bit ARMv7 | `armv7l` |
-| `wireguard-tui_<version>-1_amd64.deb` | Debian / Ubuntu | `x86_64` |
+| `wireguard-tui-1.10.0-x86_64-linux.tar.gz` | 64-bit Intel/AMD | `x86_64` |
+| `wireguard-tui-1.10.0-i686-linux.tar.gz` | 32-bit Intel/AMD | `i686`, `i386` |
+| `wireguard-tui-1.10.0-aarch64-linux.tar.gz` | 64-bit ARM (Raspberry Pi 3/4/5, …) | `aarch64` |
+| `wireguard-tui-1.10.0-armv7-linux.tar.gz` | 32-bit ARMv7 | `armv7l` |
+| `wireguard-tui_1.10.0-1_amd64.deb` | Debian / Ubuntu | `x86_64` |
 | `SHA256SUMS`, `SHA256SUMS.minisig`, `minisign.pub` | checksums, signature, key | — |
 
 Grab them from the **[latest release](https://github.com/JamilleJung/wireguard-tui/releases/latest)**
@@ -197,8 +217,8 @@ and verify **before** you extract:
 ```sh
 minisign -Vm SHA256SUMS -P RWTyrstfFCLYkpMwbcyBRl+aGGcJikl35GY1esJDO6HTEJFIMvUC8f1Q
 sha256sum -c SHA256SUMS --ignore-missing --strict   # you want an OK for your file
-tar -xzf wireguard-tui-<version>-x86_64-linux.tar.gz
-cd wireguard-tui-<version>-x86_64-linux && ./install.sh
+tar -xzf wireguard-tui-1.10.0-x86_64-linux.tar.gz
+cd wireguard-tui-1.10.0-x86_64-linux && ./install.sh
 ```
 
 > [!IMPORTANT]
@@ -209,7 +229,7 @@ cd wireguard-tui-<version>-x86_64-linux && ./install.sh
 
 The bundle installer skips Rust and the compiler; it still installs runtime
 packages and authorization. For the `.deb`:
-`sudo apt install ./wireguard-tui_<version>-1_amd64.deb` (it ships the launcher
+`sudo apt install ./wireguard-tui_1.10.0-1_amd64.deb` (it ships the launcher
 and polkit rule, but does not create the `wireguard` group — see
 [authorization](#-security-model)). Recipes for AUR, RPM, Alpine and Void live
 in [`packaging/`](packaging/PACKAGING.md); being there does not mean a distro
