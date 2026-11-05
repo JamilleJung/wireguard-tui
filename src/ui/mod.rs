@@ -189,4 +189,6 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 #[cfg(test)]
+mod screenshots;
+#[cfg(test)]
 mod tests;

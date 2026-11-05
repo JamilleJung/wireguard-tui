@@ -19,10 +19,12 @@ mod config;
 mod create;
 mod doctor;
 mod editor;
+mod import_parse;
 mod input;
 mod keymap;
 mod logging;
 mod ops;
+mod qr_isolate;
 mod runtime;
 mod safe_file;
 mod secrets;
@@ -37,6 +39,9 @@ mod validation;
 use std::io;
 
 fn main() -> io::Result<()> {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new(qr_isolate::CHILD_ARG)) {
+        qr_isolate::child_main();
+    }
     // Handle --version/--help before touching the terminal, so they work in
     // scripts and don't accidentally launch the full-screen UI.
     let invocation = match cli::parse_args(std::env::args().skip(1)) {

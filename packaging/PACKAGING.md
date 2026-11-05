@@ -1,6 +1,6 @@
 # Packaging wireguard-tui
 
-The current recipes target **1.9.3**. They build/install `wg-tui` plus the Rust
+The current recipes target **1.10.0**. They build/install `wg-tui` plus the Rust
 `wg-helper`. They do not add the `wireguard-tui` alias created by `install.sh`.
 Recipe availability is not a claim that a package is already published in an
 external repository.
@@ -71,7 +71,7 @@ cargo deb --no-build --no-strip
 Release packages use an auditable build and UPX compression before packaging;
 see [RELEASES.md](../docs/RELEASES.md) for verification and packed-binary audit
 instructions. Install a verified release with the package manager, for example
-`sudo apt install ./wireguard-tui_1.9.3-1_amd64.deb`.
+`sudo apt install ./wireguard-tui_1.10.0-1_amd64.deb`.
 
 ## Arch / AUR
 
@@ -122,6 +122,36 @@ and `.SRCINFO` match (`--strict` also rejects placeholder checksums).
 `makepkg --verifysource` (Arch), `rpmspec -P` and `rpmlint` (Fedora),
 `apkbuild-lint` and `abuild verify` (Alpine) and `xlint` (Void) in containers;
 `--build` also builds the packages.
+
+`tests/package-build.sh arch|rpm|apk|void` builds the real package from the
+current checkout, not from a release. It creates `wireguard-tui-VERSION.tar.gz` with the
+release archive's name and layout: `git archive` of `HEAD` for a clean tree,
+otherwise the tracked and untracked, non-ignored files. It then points temporary
+copies of the recipe at that archive, with checksums from `update-checksums.sh
+--tarball`; the committed recipes keep their release URLs. The script runs the
+distribution's own tool in a container, and each tool also runs the package's
+tests:
+
+- `makepkg -s --noconfirm` + `namcap` (`archlinux:latest`, amd64)
+- `rpmbuild -ba` with the `Source1` from `update-checksums.sh --vendor` (`fedora:latest`)
+- `abuild -r` with a throwaway `abuild-keygen -a -n` key (`alpine:latest`)
+- `xbps-src -Q pkg` as an unprivileged user, after `binary-bootstrap`, in a
+  void-packages checkout (`void-glibc`, run `--privileged` for `xbps-uchroot`,
+  as in void-packages CI)
+
+It then installs the package with the package manager in a clean container and
+runs `wg-tui --version` and `tests/helper-validation.sh` against the installed
+helper. Packages are written to `target/package-build/FORMAT/`, or to the
+directory given with `--out=DIR`. If a build runs out of memory, set
+`CARGO_BUILD_JOBS=2`. On a non-x86_64 host the Arch build runs under amd64
+emulation. The emulator does not report a failed exec from a spawned child, so
+the script skips the tests that depend on that, and logs the skips. The
+`Package builds` workflow runs all four formats and
+uploads the packages. The helper's process tests spawn `python3`, so every recipe
+declares it as a check dependency. The Void template skips the one test that
+needs a root-owned `/bin/sh`, because xbps-src builds in a masterdir that the
+build user owns. The PKGBUILD depends on `hicolor-icon-theme` for the icon
+directory and sets `!debug`, because Cargo already strips the binaries.
 
 Every recipe fetches crates only in its prepare step (`cargo fetch --locked`),
 then builds and tests offline with `--frozen`; the RPM builds from the vendored

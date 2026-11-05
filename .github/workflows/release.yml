@@ -8,10 +8,19 @@ name: Release
 # namespace test, the kill switch end-to-end test, all four static builds,
 # the .deb, QEMU smoke tests of every architecture, signing, and independent
 # verification of the signed artifacts. A skipped or cancelled job blocks it.
+#
+# Dry run: start the workflow manually from any branch with a version. Every
+# job runs and is verified exactly like a tagged release, except that the
+# checksums are signed with a throwaway key and nothing is published.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build as a dry run (no publish), e.g. 1.10.0"
+        required: true
+        type: string
 
 # Least privilege: the token is read-only everywhere except the publish job.
 permissions:
@@ -23,6 +32,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # The tag being released; for a dry run, the tag the version would get.
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
 
 jobs:
   # ---------------------------------------------------------------- checks
@@ -33,7 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Tag, Cargo.toml, Cargo.lock, CHANGELOG and packaging agree
-        run: bash scripts/check-version.sh --tag "$GITHUB_REF_NAME"
+        run: bash scripts/check-version.sh --tag "$RELEASE_TAG"
 
   lint:
     name: rustfmt & clippy
@@ -123,7 +134,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Validate tag and package version
-        run: bash scripts/check-version.sh --tag "$GITHUB_REF_NAME"
+        run: bash scripts/check-version.sh --tag "$RELEASE_TAG"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -156,7 +167,7 @@ jobs:
       # commit time as mtime) so scripts/verify-release.sh can pin it exactly.
       - name: Stage tarball
         env:
-          REF: ${{ github.ref_name }}
+          REF: ${{ env.RELEASE_TAG }}
           ARCH: ${{ matrix.arch }}
           TARGET: ${{ matrix.target }}
         run: bash scripts/stage-tarball.sh "${REF#v}" "$ARCH" "target/${TARGET}/release"
@@ -176,7 +187,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Validate tag and package version
-        run: bash scripts/check-version.sh --tag "$GITHUB_REF_NAME"
+        run: bash scripts/check-version.sh --tag "$RELEASE_TAG"
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Install cargo-auditable
@@ -186,7 +197,7 @@ jobs:
       - name: CLI contract before packing
         run: |
           bash tests/helper-validation.sh target/release/wg-helper
-          bash tests/release-regression.sh --version "${GITHUB_REF_NAME#v}" target/release/wg-tui target/release/wg-helper
+          bash tests/release-regression.sh --version "${RELEASE_TAG#v}" target/release/wg-tui target/release/wg-helper
       # Shrink the shipped binaries before packaging the .deb (~60% smaller on
       # disk). Re-checked so a broken pack fails the release rather than shipping.
       - name: Compress binaries with UPX
@@ -194,7 +205,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends upx-ucl
           upx --best --lzma target/release/wg-tui target/release/wg-helper
-          bash tests/release-regression.sh --version "${GITHUB_REF_NAME#v}" target/release/wg-tui target/release/wg-helper
+          bash tests/release-regression.sh --version "${RELEASE_TAG#v}" target/release/wg-tui target/release/wg-helper
       - name: Build .deb
         run: |
           cargo install cargo-deb --version =3.8.0 --locked
@@ -238,7 +249,7 @@ jobs:
         id: unpack
         env:
           ARCH: ${{ matrix.arch }}
-          REF: ${{ github.ref_name }}
+          REF: ${{ env.RELEASE_TAG }}
         run: |
           tar -xzf "dist/wireguard-tui-${REF#v}-${ARCH}-linux.tar.gz" -C dist
           dir="dist/wireguard-tui-${REF#v}-${ARCH}-linux"
@@ -247,7 +258,7 @@ jobs:
       - name: --version / --help
         env:
           DIR: ${{ steps.unpack.outputs.dir }}
-          REF: ${{ github.ref_name }}
+          REF: ${{ env.RELEASE_TAG }}
         run: |
           test "$("$DIR/wg-tui" --version)" = "wg-tui ${REF#v}"
           "$DIR/wg-tui" --help | grep -q '^wg-tui '
@@ -256,7 +267,7 @@ jobs:
       - name: Release regression (CLI contract)
         env:
           DIR: ${{ steps.unpack.outputs.dir }}
-          REF: ${{ github.ref_name }}
+          REF: ${{ env.RELEASE_TAG }}
         run: bash tests/release-regression.sh --version "${REF#v}" "$DIR/wg-tui" "$DIR/wg-helper"
 
   # WireGuard + kill switch + live config update with the shipped helper.
@@ -279,7 +290,7 @@ jobs:
           sudo modprobe wireguard
       - name: End-to-end test with the release helper
         env:
-          REF: ${{ github.ref_name }}
+          REF: ${{ env.RELEASE_TAG }}
         run: |
           tar -xzf "dist/wireguard-tui-${REF#v}-x86_64-linux.tar.gz" -C dist
           test -f tests/killswitch-e2e.sh || { echo "::error::tests/killswitch-e2e.sh is missing"; exit 1; }
@@ -291,7 +302,7 @@ jobs:
     needs: [build, deb]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: release
+    environment: ${{ github.event_name == 'push' && 'release' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Download all build artifacts
@@ -300,10 +311,14 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Collect artifacts
+        env:
+          EVENT: ${{ github.event_name }}
         run: |
           mkdir -p out
           find dist -type f \( -name '*.tar.gz' -o -name '*.deb' \) -exec cp -v {} out/ \;
-          cp minisign.pub out/
+          # A dry run signs with a throwaway key; shipping the project key
+          # beside it would (rightly) fail verification.
+          if [ "$EVENT" = push ]; then cp minisign.pub out/; fi
           ls -l out
       - name: Generate checksums
         working-directory: out
@@ -316,10 +331,11 @@ jobs:
           sha256sum "${artifacts[@]}" | tee SHA256SUMS
           test -s SHA256SUMS
       - name: Sign SHA256SUMS with minisign (fail-closed)
+        if: github.event_name == 'push'
         working-directory: out
         env:
           MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
-          REF: ${{ github.ref_name }}
+          REF: ${{ env.RELEASE_TAG }}
         run: |
           if [ -z "$MINISIGN_KEY" ]; then
             echo "::error::MINISIGN_KEY secret not set — refusing to publish an unsigned release"
@@ -333,6 +349,27 @@ jobs:
           rm -f minisign.key
           minisign -Vm SHA256SUMS -p minisign.pub
           test -s SHA256SUMS.minisig
+      - name: Sign SHA256SUMS with a throwaway key (dry run)
+        if: github.event_name != 'push'
+        working-directory: out
+        env:
+          REF: ${{ env.RELEASE_TAG }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends minisign
+          mkdir -p ../dry-run-key
+          minisign -G -W -p ../dry-run-key/dry-run.pub -s ../dry-run.key
+          minisign -S -s ../dry-run.key -m SHA256SUMS -t "wireguard-tui ${REF#v}"
+          rm -f ../dry-run.key
+          minisign -Vm SHA256SUMS -p ../dry-run-key/dry-run.pub
+          test -s SHA256SUMS.minisig
+      - name: Upload the dry-run public key
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dry-run-key
+          path: dry-run-key/
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload signed release set
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -363,8 +400,19 @@ jobs:
       # Signature against the COMMITTED key, checksums, archive contents and
       # modes, static linkage, architecture, embedded version == tag, .deb
       # metadata, and the CLI contract of every architecture's binaries.
+      - name: Download the dry-run public key
+        if: github.event_name != 'push'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dry-run-key
+          path: dry-run-key
       - name: scripts/verify-release.sh --strict --run
-        run: bash scripts/verify-release.sh --strict --run --tag "$GITHUB_REF_NAME" out
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          key=()
+          if [ "$EVENT" != push ]; then key=(--pubkey dry-run-key/dry-run.pub); fi
+          bash scripts/verify-release.sh --strict --run "${key[@]}" --tag "$RELEASE_TAG" out
 
   # ---------------------------------------------------------------- publish
   publish:
@@ -373,7 +421,7 @@ jobs:
     # The default `success()` condition already skips publishing unless every
     # needed job succeeded; the explicit check below also refuses to run if a
     # future edit loosens this condition.
-    if: ${{ success() }}
+    if: ${{ success() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

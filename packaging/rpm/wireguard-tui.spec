@@ -1,5 +1,5 @@
 Name:           wireguard-tui
-Version:        1.9.3
+Version:        1.10.0
 Release:        1%{?dist}
 Summary:        Terminal UI for managing WireGuard tunnels
 
@@ -16,6 +16,8 @@ ExclusiveArch:  x86_64 aarch64
 BuildRequires:  cargo >= 1.88
 BuildRequires:  rust >= 1.88
 BuildRequires:  gcc
+# The test suite: the helper's process tests spawn python3.
+BuildRequires:  python3
 
 Requires:       wireguard-tools
 Requires:       iproute
@@ -80,6 +82,9 @@ fi
 %{_datadir}/icons/hicolor/scalable/apps/%{name}.svg
 
 %changelog
+* Thu Nov 05 2026 jamillejung <izeystudio@gmail.com> - 1.10.0-1
+- Update to 1.10.0.
+
 * Mon Nov 02 2026 jamillejung <izeystudio@gmail.com> - 1.9.3-1
 - Reuse existing polkit group/membership on Alpine/BusyBox reinstalls.
 

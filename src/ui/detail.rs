@@ -11,14 +11,14 @@ use crate::theme::Theme;
 
 fn kv(theme: &Theme, label: &str, value: &str) -> Line<'static> {
     Line::from(vec![
-        Span::styled(format!("  {label:<14}"), theme.label()),
+        Span::styled(format!("  {label:<16}"), theme.label()),
         Span::raw(theme.text(value).into_owned()),
     ])
 }
 
 fn kv_styled(theme: &Theme, label: &str, value: String, style: Style) -> Line<'static> {
     Line::from(vec![
-        Span::styled(format!("  {label:<14}"), theme.label()),
+        Span::styled(format!("  {label:<16}"), theme.label()),
         Span::styled(theme.text(&value).into_owned(), style),
     ])
 }

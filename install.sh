@@ -794,7 +794,16 @@ txn_rollback() {
         as_root semanage fcontext -d "${HELPER//./\\.}" >/dev/null 2>&1 || true
     fi
     for dir in $CREATED_DIRS; do dirs="$dir $dirs"; done
-    for dir in $dirs; do as_root rmdir "$dir" 2>/dev/null; done
+    for dir in $dirs; do
+        # update-desktop-database leaves a cache in an applications directory
+        # this run created; it would keep the directory (and parents) behind.
+        case "$dir" in
+            */share/applications)
+                [ "$(as_root ls -A "$dir" 2>/dev/null)" != mimeinfo.cache ] \
+                    || as_root rm -f "$dir/mimeinfo.cache" ;;
+        esac
+        as_root rmdir "$dir" 2>/dev/null
+    done
     if selinux_enabled && command -v restorecon >/dev/null 2>&1; then
         for path in "${TXN_PATH[@]}"; do
             as_root test -e "$path" && as_root restorecon -F "$path" >/dev/null 2>&1
@@ -882,7 +891,9 @@ apply_selinux_labels() {
                 warn "Labelled $HELPER bin_t with chcon. A full relabel resets this; install"
                 warn "semanage (policycoreutils-python-utils) and re-run to make it persistent."
             else
+                # Not "restored": the exec check below decides whether it runs.
                 warn "The helper's SELinux context is '$ctx' (expected bin_t)."
+                return 0
             fi ;;
     esac
     ok "SELinux contexts restored."
@@ -893,11 +904,21 @@ apply_selinux_labels() {
 # never ran; the shell's own message tells a denial (SELinux, a noexec mount)
 # from a missing loader (wrong CPU or C library), since shells differ in codes.
 verify_helper_executes() {
-    local rc=0 out
+    local rc=0 out mnt
     out="$(as_root sh -c '"$1" </dev/null 2>&1 >/dev/null' wg-helper-probe "$HELPER")" || rc=$?
     [ "$rc" -ge 126 ] || { ok "Helper runs as root."; return 0; }
     case "$out" in
         *"ermission denied"*)
+            # A noexec mount also denies with EACCES; name it before blaming
+            # SELinux. The innermost mount holding the helper wins.
+            mnt="$(awk -v path="$HELPER" '
+                path == $2 || index(path, ($2 == "/" ? "/" : $2 "/")) == 1 {
+                    if (length($2) >= best) { best = length($2); top = $2; opts = "," $4 "," }
+                }
+                END { if (opts ~ /,noexec,/) print top }' /proc/mounts 2>/dev/null)" || mnt=""
+            if [ -n "$mnt" ]; then
+                die "Executing $HELPER was denied: $mnt is mounted noexec. Install into a PREFIX on a filesystem that allows execution (or remount $mnt with exec), then re-run. The previous installation is restored."
+            fi
             if selinux_enabled; then
                 die "Executing $HELPER was denied (SELinux). Check 'sudo ausearch -m avc -ts recent' and 'ls -Z $HELPER'; fix the label with 'sudo semanage fcontext -a -t bin_t ${HELPER//./\\.} && sudo restorecon -v $HELPER', then re-run. The previous installation is restored."
             fi

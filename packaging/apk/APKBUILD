@@ -1,7 +1,7 @@
 # Contributor: jamillejung <izeystudio@gmail.com>
 # Maintainer: jamillejung <izeystudio@gmail.com>
 pkgname=wireguard-tui
-pkgver=1.9.3
+pkgver=1.10.0
 pkgrel=0
 pkgdesc="Terminal UI for managing WireGuard tunnels with wg and wg-quick"
 url="https://github.com/JamilleJung/wireguard-tui"
@@ -9,6 +9,8 @@ arch="x86_64 aarch64"
 license="MIT"
 # wg-quick needs iproute2; the kill switch uses nftables.
 depends="wireguard-tools iproute2 nftables polkit"
+# The helper's process tests spawn python3.
+checkdepends="python3"
 makedepends="cargo cargo-auditable"
 install="$pkgname.post-install $pkgname.post-upgrade"
 subpackages="$pkgname-doc"
@@ -46,5 +48,5 @@ package() {
 }
 
 sha512sums="
-c1edba46ec2ad798c5ab19e157ea295b55d2c237445794a87794dd5907d9173394f74e361a3e6fde5605d8e89d35325956cace23ad77b5838d754e12c7f970b2  wireguard-tui-1.9.3.tar.gz
+SKIP  wireguard-tui-1.10.0.tar.gz
 "

@@ -122,7 +122,9 @@ informational. Scheduled workflows fuzz nightly, run mutation testing weekly,
 and re-test the newest compatible dependencies weekly.
 
 The [release workflow](../.github/workflows/release.yml) is triggered by a
-`vMAJOR.MINOR.PATCH` tag. A manual dispatch must also target a version tag.
+`vMAJOR.MINOR.PATCH` tag. A manual run (`workflow_dispatch` with a `version`
+input, from any branch) is a dry run: every gate runs, the checksums are
+signed with a throwaway key, and nothing is published.
 Its publish job **depends on every gate below and fails closed**: a failed,
 skipped or cancelled gate prevents publication, and the publish job
 re-checks that all eleven gates reported success.

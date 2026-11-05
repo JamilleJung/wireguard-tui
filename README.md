@@ -1,438 +1,650 @@
 <div align="center">
 
-# wireguard-tui - `wg-tui`
+<img src="packaging/wireguard-tui.svg" alt="" width="96">
 
-A native Linux terminal UI for plain WireGuard tunnels. Current release: **1.9.3**.
+# 🐉 wireguard-tui
+
+### WireGuard tunnels, one keystroke away. No browser tab required.
+
+A native Linux **terminal UI** for plain WireGuard — `/etc/wireguard/*.conf`,
+`wg` and `wg-quick` — with every root operation kept behind one small,
+auditable Rust helper. Works in a local terminal, over SSH, on a Raspberry Pi,
+or on that VPS you forgot you were paying for.
 
 [![CI](https://github.com/JamilleJung/wireguard-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/JamilleJung/wireguard-tui/actions/workflows/ci.yml)
-[![Releases](https://img.shields.io/badge/Releases-latest-2ea44f)](https://github.com/JamilleJung/wireguard-tui/releases/latest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/JamilleJung/wireguard-tui?color=2ea44f&label=release)](https://github.com/JamilleJung/wireguard-tui/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)
+![Platform: Linux](https://img.shields.io/badge/platform-Linux-success.svg)
+![No GUI deps](https://img.shields.io/badge/GUI%20deps-zero-blueviolet.svg)
+![Static binaries](https://img.shields.io/badge/static-x86__64%20%C2%B7%20i686%20%C2%B7%20aarch64%20%C2%B7%20armv7-informational.svg)
 
-<img src="docs/screenshot.svg" alt="Illustrative wg-tui interface with fictional tunnel data" width="900">
+<img src="docs/images/tui-main.svg" alt="wg-tui main screen: tunnel list, live interface details, healthy peer, kill switch on" width="900">
+
+<sub>Rendered from the app's own UI code with fictional tunnels. No real keys were harmed in the making of this screenshot.</sub>
+
+**[🚀 Install](#-install-one-command)** ·
+**[🖼️ Tour](#️-a-quick-tour)** ·
+**[⌨️ Keys](#️-keys)** ·
+**[🛡️ Kill switch](#️-the-kill-switch-explained-like-youre-busy)** ·
+**[🔐 Security](#-security-model)** ·
+**[📚 Docs](#-docs)**
 
 </div>
 
-*Illustrative UI example rendered from application code with fictional tunnel data.*
+---
 
-Built with Rust and ratatui, `wg-tui` manages `/etc/wireguard/*.conf` through
-`wg`, `wg-quick`, and a small privileged Rust helper. It works in a local
-terminal or over SSH without a graphical desktop, NetworkManager, or a daemon
-of its own. The separate [wireguard-gui](https://github.com/JamilleJung/wireguard-gui)
-project provides a desktop interface; the two frontends have different controls.
+> [!TIP]
+> **TL;DR** — `git clone https://github.com/JamilleJung/wireguard-tui && cd wireguard-tui && ./install.sh && wg-tui`.
+> That's it. Go connect something. 🔌
 
-## What it does
+Prefer clicking things? 🖱️ The sibling
+**[wireguard-gui](https://github.com/JamilleJung/wireguard-gui)** is the same
+idea as a native desktop app.
 
-- List, connect, disconnect, rename, and remove tunnels; show live peer details,
-  handshake age, transfer totals, and throughput.
-- Import `.conf` files or PNG/JPEG QR images, create a tunnel from a preset,
-  edit raw config in an external editor, generate keys, and display QR codes.
-- Apply WireGuard-level edits with `wg syncconf`, inspect running config, save
-  live state, and toggle systemd start-on-boot.
-- Copy focused detail fields and log lines, filter/save logs, and manage ZIP
-  backups shared with the desktop client.
-- Run connection diagnostics, read the in-app guide/changelog, and install
-  verified release updates when a newer version is detected.
-- Toggle a temporary helper-managed kill switch using nftables or
-  iptables/ip6tables; a switch lost to a firewall reload or a stale mark is
-  detected and repaired automatically.
-- Per-peer connection health: Healthy, Connecting, No traffic, Idle, Handshake
-  stale, Connection failed. A quiet tunnel with an old handshake is Idle, not
-  broken.
-- Never loses an edit: a draft that fails validation or saving is kept with
-  Retry / Re-edit / Discard, and every action is checked against the real
-  state afterwards.
-- Default, high-contrast and ASCII themes, `NO_COLOR` support, and layouts that
-  degrade gracefully on small terminals.
+## 💡 Why does this exist?
 
-All keys are available immediately. Since 1.8.0 there is no Easy/Advanced mode
-switch; **`m` has no action**. The "Advanced" group in `?` is just a key category.
+Because `wg`, `wg-quick`, `systemctl` and `journalctl` are wonderful tools that
+were clearly never introduced to each other. `wg-tui` puts the whole everyday
+loop — list, connect, inspect, edit, import, diagnose, log — on one screen.
 
-## Install
+| It is | It is not |
+|---|---|
+| 🦀 one static Rust binary + one tiny helper | 🧱 Electron, a WebView, or 400 MB of Chromium to flip one tunnel on |
+| 📄 plain `/etc/wireguard/*.conf` files | 🗄️ a config database you can't `cat` |
+| 🧰 `wg`, `wg-quick`, systemd `wg-quick@<name>` | 🕸️ a NetworkManager plugin |
+| 🖥️ happy over SSH on a headless box | 👻 a daemon that lives in your process list forever |
+| 🔍 small enough to read in an afternoon | 🎩 a VPN provider (bring your own config) |
 
-### Source installer
+## 🖼️ A quick tour
 
-Run as your normal user:
+| 🩺 Health per peer | 🛡️ Kill switch self-repair |
+|:---:|:---:|
+| <img src="docs/images/tui-peers.svg" alt="Detail pane with three peers: healthy, idle, handshake stale" width="440"> | <img src="docs/images/tui-killswitch.svg" alt="Kill switch MISSING on an active tunnel, being repaired" width="440"> |
+| **Idle ≠ broken.** Each peer gets its own verdict. | A firewall reload ate the rules? It notices, and puts them back. |
+| 📝 **Drafts never vanish** | ⌨️ **Scrollable key map** |
+| <img src="docs/images/tui-draft.svg" alt="Draft recovery prompt: Retry, Re-edit, Discard" width="440"> | <img src="docs/images/tui-help.svg" alt="Scrollable help popup listing every key" width="440"> |
+| Save failed? Your edit waits for you: Retry / Re-edit / Discard. | `?` lists every key, generated from the same table the app uses. |
+| 🌗 **High contrast** | 🔤 **ASCII mode** (for serial consoles and brave souls) |
+| <img src="docs/images/tui-high-contrast.svg" alt="Main view in the high-contrast theme" width="440"> | <img src="docs/images/tui-ascii.svg" alt="Main view using only ASCII characters" width="440"> |
+
+<details>
+<summary>📱 …and it still works in a terminal the size of a sticky note</summary>
+
+<img src="docs/images/tui-small.svg" alt="A 60-column terminal showing the stacked list-over-details layout" width="560">
+
+Below 24×6 it politely asks for more room instead of drawing spaghetti.
+
+</details>
+
+## ✨ What it does
+
+**🔌 Everyday tunnels**
+- List, connect, disconnect, rename and remove tunnels with one key.
+- Live interface and peer details: endpoint, allowed IPs, handshake age, transfer, throughput.
+- Per-peer health: 🟢 Healthy · 🔵 Connecting · ⚪ Idle · 🟡 No traffic · 🟠 Handshake stale · 🔴 Connection failed.
+- systemd start-on-boot, running config (`wg showconf`), save live state (`wg-quick save`).
+
+**📝 Configs, imports and backups**
+- Edit raw config in `$VISUAL` / `$EDITOR` / `nano`; edits to a running tunnel are applied live with `wg syncconf`.
+- Create from presets (Interface-only, full tunnel, split tunnel), generate keys, show a QR code.
+- Import `.conf` files or PNG/JPEG QR images; export everything to ZIP; private backups shared with the desktop app.
+- A draft that fails validation or saving is **kept** — Retry / Re-edit / Discard.
+
+**🛡️ Safety nets**
+- A temporary kill switch (nftables or iptables) that detects lost rules and repairs itself.
+- Every action is checked against the real state afterwards; timeouts are re-checked, not guessed.
+- Backup restore rolls back if anything fails halfway.
+- Imports never hang on a FIFO, and QR images are decoded in a throwaway child process.
+
+**🩹 Help when things are weird**
+- `wg-tui doctor` (read-only checklist) and `wg-tui setup` (confirmed fixes).
+- `D` diagnoses a tunnel: clock, handshake, endpoint ping, DNS.
+- In-app guide, changelog, log viewer with filters, and verified in-app updates.
+
+**♿ Comfortable for everyone**
+- Default, high-contrast and ASCII themes; `NO_COLOR` respected.
+- Everything reachable by keyboard (it's a TUI — we'd hope so), scrollable panes, small-terminal layouts.
+
+<a id="install"></a>
+
+## 🚀 Install (one command)
 
 ```sh
 git clone https://github.com/JamilleJung/wireguard-tui.git
 cd wireguard-tui
-./install.sh
-wg-tui doctor
-wg-tui
+./install.sh        # run as your normal user, not root
+wg-tui doctor       # optional: a quick health check
+wg-tui              # 🎉
 ```
 
-The installer detects `apt-get`, `dnf`/`yum`, `pacman`, `zypper`, `apk`,
-`xbps-install`, or `eopkg`. It installs runtime packages, a C build toolchain
-when needed, and Rust through rustup if absent; then builds as the invoking
-user. It installs under `/usr/local` by default, with `wg-helper` under
-`/usr/local/lib/wireguard-tui/`, and creates the `wireguard-tui` command alias.
+That's it. The installer:
 
-A terminal application-menu launcher and icon are installed **by default**.
-Use `--no-desktop` for a server without a launcher. Installer options are:
+1. 🔎 detects `apt-get`, `dnf`/`yum`, `pacman`, `zypper`, `apk`, `xbps-install` or `eopkg`;
+2. 📦 installs only the runtime packages that are actually missing (plus a C toolchain and Rust via rustup if it has to build);
+3. 🦀 builds as you, then installs to `/usr/local` with the helper in `/usr/local/lib/wireguard-tui/`;
+4. 🔑 sets up helper authorization (a scoped sudoers grant by default);
+5. 🧾 records what it did, so re-runs and updates keep your choices.
 
-| Option | Effect |
+| Option | What it does |
 |---|---|
 | `--sudoers` | Default: passwordless helper grant for the invoking user |
-| `--polkit` | Install a group-restricted polkit rule instead |
-| `--desktop` / `--no-desktop` | Install / skip the launcher and icon |
-| `--allow-root` | Explicitly allow installation from a direct root login |
-| `--binaries=DIR` | Install prebuilt app and helper binaries from `DIR` instead of building |
-| `--force` | Install even though a distribution package copy is present |
-| `uninstall` | Remove everything the installer added; keep tunnel configs |
+| `--polkit` | A group-restricted polkit rule instead (`wireguard` group, active local session) |
+| `--desktop` / `--no-desktop` | Install / skip the app-menu launcher and icon (installed by default) |
+| `--binaries=DIR` | Install prebuilt binaries from `DIR` instead of building |
+| `--force` | Install even though a distribution package copy exists |
+| `--allow-root` | Allow installing from a direct root login |
+| `uninstall` | Remove everything the installer added; your tunnel configs stay put |
 
-The installer records how it installed the app in a root-owned
-`PREFIX/lib/wireguard-tui/install-manifest`. A re-run, `--update`, or the in-app
-updater keeps the recorded prefix, authorization mode (sudoers or polkit)
-and desktop-entry choice unless a flag changes them. A failed or interrupted
-install restores the previous binaries, authorization files and `wireguard`
-group setup. If a distribution package already provides the app, the
-installer refuses to add a second copy under `/usr/local` (use the package
-manager, or `--force`), and the in-app updater refuses to replace a package
-or `cargo install` copy and names the right update command instead. On Arch,
-only missing packages are installed with `pacman -S --needed` and no database
-refresh; run `sudo pacman -Syu` first if that fails. With SELinux enforcing,
-the installer labels the helper `bin_t`, restores file contexts and checks that
-the helper actually runs before it finishes.
+> [!NOTE]
+> Your tunnels in `/etc/wireguard` are never touched by install, update or uninstall.
 
-If usable sudo is unavailable, the installer can re-run through `su` using the
-root password while retaining the invoking user for the build and helper grant.
-A direct root login without a normal user is refused unless `--allow-root` (or
-`WG_ALLOW_ROOT=1`) is set. That override can permit a source build as root;
-prefer a normal user or a verified prebuilt bundle. `PREFIX` can change install
-paths, but helper discovery and shipped polkit rules use the documented standard
-paths. Custom layouts require matching authorization and an explicit supported
-helper override; see CONTRIBUTING.md.
+<details>
+<summary>🧾 What the installer promises (the fine print, all of it true)</summary>
 
-### Signed prebuilt releases
+- **It remembers.** A root-owned `PREFIX/lib/wireguard-tui/install-manifest`
+  records the install method, prefix, authorization mode and desktop choice.
+  A re-run, `--update` or the in-app updater keeps them unless a flag changes
+  them.
+- **It undoes itself.** A failed or interrupted install restores the previous
+  binaries, authorization files and `wireguard` group setup.
+- **It won't double up.** If a distribution package already provides the app,
+  it refuses to add a second copy under `/usr/local` (use the package manager,
+  or `--force`). The in-app updater refuses to replace a package or
+  `cargo install` copy and names the right update command instead.
+- **It is nice to Arch.** Only missing packages are installed with
+  `pacman -S --needed`, with no database refresh (no partial upgrades); run
+  `sudo pacman -Syu` first if that fails.
+- **It speaks SELinux.** With SELinux enforcing it labels the helper `bin_t`,
+  restores file contexts and checks that the helper actually runs.
+- **It validates everything.** Unknown options fail. Switching sudoers/polkit
+  installs and validates the new grant before removing the old one; a failed
+  sudoers validation or group enrollment keeps the previous authorization.
+  `--polkit` requires pkexec up front, checks an existing `wireguard` group and
+  membership before calling group tools, and works on Alpine/BusyBox without
+  Shadow's `groupadd`/`usermod`.
+- **No sudo?** It can re-run through `su` with the root password while keeping
+  the invoking user for the build and the grant. A direct root login is refused
+  unless `--allow-root` (or `WG_ALLOW_ROOT=1`) is set; prefer a normal user or a
+  verified prebuilt bundle.
+- **`PREFIX` rules.** Before privileged writes, `PREFIX` must be an absolute
+  ASCII path of letters, digits, `/`, `_`, `.` and `-`, without empty, `.` or
+  `..` components or a trailing slash, and existing ancestors must be root-owned
+  and not group/other writable (symlinks refused). A group-writable
+  `/usr/local` therefore fails. `--polkit` supports only `/usr` or
+  `/usr/local`, matching the bundled rule. Custom layouts need matching helper
+  discovery; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-[Release 1.9.3](https://github.com/JamilleJung/wireguard-tui/releases/tag/v1.9.3)
-provides:
+</details>
 
-| Artifact | Host |
-|---|---|
-| `wireguard-tui-1.9.3-x86_64-linux.tar.gz` | 64-bit Intel/AMD |
-| `wireguard-tui-1.9.3-i686-linux.tar.gz` | 32-bit Intel/AMD |
-| `wireguard-tui-1.9.3-aarch64-linux.tar.gz` | 64-bit ARM |
-| `wireguard-tui-1.9.3-armv7-linux.tar.gz` | 32-bit ARMv7 |
-| `wireguard-tui_1.9.3-1_amd64.deb` | Debian/Ubuntu amd64 |
+### 📦 Signed prebuilt releases
 
-The tarballs contain static musl application/helper binaries, `install.sh`,
-installer assets under `packaging/`, README, and license. Choose the archive
-matching `uname -m` (`armv7l` uses armv7). Verify it **before** extraction:
+Every release ships **static musl binaries for every common Linux CPU** —
+no glibc version roulette:
+
+| Artifact | For | `uname -m` |
+|---|---|---|
+| `wireguard-tui-<version>-x86_64-linux.tar.gz` | 64-bit Intel/AMD | `x86_64` |
+| `wireguard-tui-<version>-i686-linux.tar.gz` | 32-bit Intel/AMD | `i686`, `i386` |
+| `wireguard-tui-<version>-aarch64-linux.tar.gz` | 64-bit ARM (Raspberry Pi 3/4/5, …) | `aarch64` |
+| `wireguard-tui-<version>-armv7-linux.tar.gz` | 32-bit ARMv7 | `armv7l` |
+| `wireguard-tui_<version>-1_amd64.deb` | Debian / Ubuntu | `x86_64` |
+| `SHA256SUMS`, `SHA256SUMS.minisig`, `minisign.pub` | checksums, signature, key | — |
+
+Grab them from the **[latest release](https://github.com/JamilleJung/wireguard-tui/releases/latest)**
+and verify **before** you extract:
 
 ```sh
-# Download the chosen artifact, SHA256SUMS, and SHA256SUMS.minisig first.
 minisign -Vm SHA256SUMS -P RWTyrstfFCLYkpMwbcyBRl+aGGcJikl35GY1esJDO6HTEJFIMvUC8f1Q
-sha256sum -c SHA256SUMS --ignore-missing --strict
-# Require an OK line for the exact artifact you chose.
-tar -xzf wireguard-tui-1.9.3-x86_64-linux.tar.gz
-cd wireguard-tui-1.9.3-x86_64-linux
-./install.sh
+sha256sum -c SHA256SUMS --ignore-missing --strict   # you want an OK for your file
+tar -xzf wireguard-tui-<version>-x86_64-linux.tar.gz
+cd wireguard-tui-<version>-x86_64-linux && ./install.sh
 ```
 
-The bundle installer stages both adjacent binaries and skips Rust and compiler
-setup. It still needs runtime packages and authorization. From a direct root
-login, use `./install.sh --allow-root` after verification. The attached
-`minisign.pub` should match the key committed in this repository; a signature
-verified only against an untrusted key downloaded with the artifact is not a
-trust check. Missing or invalid signing files are a reason to stop installation.
+> [!IMPORTANT]
+> A checksum alone proves nothing about who made the file, and a key downloaded
+> next to the artifact is not a trust anchor. Use the key above (it matches
+> [`minisign.pub`](minisign.pub) in this repo). Missing or bad signature files
+> mean **stop**.
 
-For a verified `.deb`, install with `sudo apt install ./wireguard-tui_1.9.3-1_amd64.deb`.
-It includes a launcher and polkit rule but no script to create the `wireguard`
-group or add users. See [authorization](#authorization) and the
-[packaging guide](packaging/PACKAGING.md). Distro recipes are supplied for
-AUR/RPM/Alpine/Void; their presence does not imply publication in a distro
-repository.
+The bundle installer skips Rust and the compiler; it still installs runtime
+packages and authorization. For the `.deb`:
+`sudo apt install ./wireguard-tui_<version>-1_amd64.deb` (it ships the launcher
+and polkit rule, but does not create the `wireguard` group — see
+[authorization](#-security-model)). Recipes for AUR, RPM, Alpine and Void live
+in [`packaging/`](packaging/PACKAGING.md); being there does not mean a distro
+already publishes them.
 
-## Usage and keys
+<a id="usage-and-keys"></a>
 
-The binary accepts `--version` / `-V`, `--help` / `-h`, `doctor`, `setup`,
-`--theme NAME` (`default`, `high-contrast`, `ascii`; also `WG_TUI_THEME`) and
-`--debug` (redacted debug log to stderr; `WG_TUI_LOG=/path/file` writes it to a
-file instead). A non-empty `NO_COLOR` turns colours off. An unknown argument
-exits `2`. The `wireguard-tui` alias is created by
-`install.sh`; distro packages may provide only `wg-tui`.
+## ⌨️ Keys
 
-| Tunnels tab | Action |
+```text
+wg-tui                    start the UI
+wg-tui doctor             read-only checklist (exit 0 ok · 1 warnings · 2 critical)
+wg-tui setup              confirmed fixes for missing prerequisites
+wg-tui --theme NAME       default · high-contrast · ascii   (or WG_TUI_THEME)
+wg-tui --debug            redacted debug log to stderr      (or WG_TUI_LOG=/path/file)
+wg-tui --version | --help
+```
+
+A non-empty `NO_COLOR` turns colours off. An unknown argument exits `2`.
+`install.sh` also creates the `wireguard-tui` alias; distro packages may ship
+only `wg-tui`.
+
+| 🔌 Tunnels tab | |
 |---|---|
-| `Up`/`k`, `Down`/`j` | Select tunnel |
+| `↑`/`k`, `↓`/`j` | Select tunnel |
 | `Enter` / `a` | Connect or disconnect |
-| `n` | Name a tunnel, choose Interface/full/split preset, open editor |
-| `i` | Import `.conf`, `.png`, `.jpg`, or `.jpeg` through file browser |
-| `e`, `+` | Edit raw config / append a peer section in the editor |
-| `g`, `c`, `p` | Generate keys / show running config / save live state |
-| `d`, `R` | Confirm deletion / rename (stops an active tunnel) |
-| `s`, `K` | Toggle systemd start-on-boot / temporary kill switch |
-| `Q`, `x` | Show QR / export all configs to `~/wireguard-tunnels.zip` |
-| `h`/`Left`, `l`/`Right`, `y` | Focus a detail field, then copy it |
+| `n` | New tunnel from a preset, opens the editor |
+| `i` | Import `.conf` / `.png` / `.jpg` / `.jpeg` |
+| `e`, `+` | Edit raw config / append a peer |
+| `E` | Reopen a kept draft (Retry / Re-edit / Discard) |
+| `g`, `c`, `p` | Generate keys / running config / save live state |
+| `d`, `R` | Delete (confirmed) / rename (stops an active tunnel) |
+| `s`, `K` | Start-on-boot / kill switch |
+| `Q`, `x` | Show QR / export all to `~/wireguard-tunnels.zip` |
+| `h`/`←`, `l`/`→`, `y` | Focus a detail field, copy it |
+| `]`, `[` · `PgUp`/`PgDn` | Next / previous peer · scroll the detail pane |
 | `D`, `H`, `w` | Diagnose / concepts guide / changelog |
-| `]`, `[` | Next / previous peer in the detail pane |
-| `PgUp`/`PgDn` | Scroll the detail pane |
-| `E` | Reopen a kept editor draft (Retry / Re-edit / Discard) |
 
-| Log tab | Action |
+| 📜 Log tab | |
 |---|---|
-| `Up`/`k`, `Down`/`j`, `PgUp`/`PgDn` | Move cursor / page |
-| `Home`/`g`, `End`/`G`, `h`/`l` | Top / bottom / horizontal scroll |
-| `f`, `t`, `/` | Follow newest / selected-tunnel filter / text filter |
+| `↑`/`k`, `↓`/`j`, `PgUp`/`PgDn` | Move / page |
+| `Home`/`g`, `End`/`G`, `h`/`l` | Top / bottom / scroll sideways |
+| `f`, `t`, `/` | Follow newest / this tunnel only / text filter |
 | `y` / `Enter`, `v`, `Y` | Copy line or selection / visual select / copy filtered log |
-| `c`, `r`, `w` | Clear view / reload / save full fetched log to `~/wireguard-tui-log.txt` |
+| `c`, `r`, `w` | Clear view / reload / save to `~/wireguard-tui-log.txt` |
 
-`Tab`/`Shift+Tab` switches tabs. `B` opens backups from either tab; `n` creates,
-`Enter`/`r` restores after confirmation, `d` confirms deletion, and `x` exports
-the selected ZIP to your home directory. `?` shows the key map (scroll it with `Up`/`Down`, `PgUp`/`PgDn`, `g`/`G`; `Esc` closes it), `A` shows About,
-`u` installs a detected update, and `q`/`Esc` quits (`Esc` first cancels an active
-log selection). Popups consume keys; `Ctrl+C` exits the app.
+**Everywhere:** `Tab`/`Shift+Tab` switch tabs · `B` backups (`n` new, `Enter`/`r`
+restore, `d` delete, `x` export) · `?` key map (`↑`/`↓`, `PgUp`/`PgDn`, `g`/`G`,
+`Esc`) · `A` about · `u` install a detected update · `q`/`Esc` quit · `Ctrl+C`
+bail out. In the import browser: `Space` marks, `Enter` imports, `→`/`l` enters a
+directory, `←`/`h`/`Backspace` goes up.
 
-The import browser uses `Space` to mark files, `Enter` on a file to import marked files,
-`Right`/`l` to enter directories, `Left`/`h`/`Backspace` to go up, and `Esc` to
-cancel. Hidden files are not listed.
+> [!NOTE]
+> Looking for Easy/Advanced mode? It retired in 1.8.0 — every key works all the
+> time now, and `m` does nothing (it's enjoying its pension).
 
-Log filters affect the view and `Y` copy; `w` saves the full fetched snapshot.
+<details>
+<summary>📋 Clipboard, background work and other small print</summary>
 
-Copy tries native clipboard tools first (`wl-copy`, `xclip`, `xsel`, with the
-order adjusted for Wayland), then OSC 52. Each native helper attempt has a
-2-second delivery/exit deadline. Over SSH, a working remote display
-clipboard can take precedence; otherwise OSC 52 requires support in the local
-terminal and multiplexer. The "copied" status for OSC 52 means the escape was
-sent, not that the terminal accepted it.
+- **Copy** tries `wl-copy`, `xclip`, `xsel` (Wayland-aware order), then OSC 52,
+  each native attempt with a 2-second deadline. Over SSH a working remote
+  clipboard may win; OSC 52 needs support in your terminal and multiplexer, and
+  "copied" means the escape was sent, not that the terminal accepted it.
+- **Background work.** Helper-backed actions run on serialized workers while
+  navigation, help and logs stay responsive; a conflicting action reports that
+  the app is busy. The external editor and the update install take the
+  foreground on purpose. Leaving the app doesn't roll back an operation that
+  already started. Log filters affect the view and `Y`; `w` saves the full
+  fetched snapshot.
 
-Most helper-backed tunnel/config/import/backup/key-generation actions run on
-serialized workers while navigation/help/log reading remain available. Conflicting
-actions report that the app is busy. The external editor and cooked-terminal
-update install deliberately take the foreground; local directory browsing,
-clipboard attempts and log-file writes can still briefly wait. Leaving the app
-does not roll back an operation that has already started. Backup actions return
-to the main view; press `B` to reopen the manager.
+</details>
 
-## Editing, backups, and kill switch limits
+## 🛡️ The kill switch, explained like you're busy
 
-Imported config files and external-editor output must be regular files at most
-1 MiB. Named pipes and other special files are rejected without waiting for
-a writer.
+Turn it on with `K` on a connected tunnel. From then on, anything trying to
+leave your machine **outside** the tunnel gets politely rejected:
 
-The editor is `$VISUAL`, then `$EDITOR`, then `nano`; command words support shell
-quoting but no shell expansion or execution. Use a wrapper script for pipelines
-or environment expansion. The app suspends and restores its existing terminal
-state, opens a `0600` draft in an exclusive `0700` temporary directory, then
-validates and cleans the directory, including editor swap/backup files. Configs remain plain text: inline `#` comments
-and repeated Address/DNS/AllowedIPs are supported. The helper rejects script
-hooks (`PreUp`, `PostUp`, `PreDown`, `PostDown`) on save/rename.
+```mermaid
+flowchart LR
+    P([📦 packet leaving the host]) --> Q{where is it going?}
+    Q -->|loopback| OK[✅ allowed]
+    Q -->|into the tunnel| OK
+    Q -->|WireGuard transport<br/>tagged with the tunnel's fwmark| OK
+    Q -->|IPv6 neighbor discovery · DHCP ·<br/>your current SSH session| OK
+    Q -->|anything else| NO[🚫 rejected]
+    OK --> R[your own firewall rules<br/>still get their say]
+```
 
-Editing an active tunnel attempts `wg syncconf`. Address/DNS/MTU/routing changes
-still need a reconnect even if WireGuard-level synchronization succeeds.
-Quick-add peer uses the same save and live-sync path as normal editing. Saving live state (`p`) can
-replace saved WireGuard settings, so review the result.
+| Status | Meaning | What the app does |
+|---|---|---|
+| 🟢 `enabled` | Complete rules, and their mark matches the running tunnel | Nothing. Enjoy your coffee. |
+| ⚪ `disabled` | Off | Nothing. |
+| 🟠 `missing` | It was on, but the rules vanished (hello, `firewall-cmd --reload`) | Repairs it automatically, once per loss, with backoff |
+| 🟡 `mismatch` | Rules exist but are stale (mark changed, tunnel down, built by an older release) | Repairs it on an active tunnel; tells you otherwise |
 
-User backups live under `$XDG_DATA_HOME/wireguard/backups` (an absolute XDG
-path), or `~/.local/share/wireguard/backups`, shared by both applications.
-Existing managed backup directories must belong to the current user and are
-checked/tightened to `0700`; symlink directories are refused. ZIPs and exported
-copies use `0600`. New backup names are unique even within one second and are
-published without overwriting another archive.
+<details>
+<summary>🔬 The nerdy details (nftables, iptables, fwmarks, IPv6)</summary>
 
-Export reads every listed tunnel successfully or reports an error. It no longer
-reports a successful incomplete archive after a helper/read failure. Exports
-and saved logs are written to a completed private sibling file and then
-published atomically: failed writes preserve the old destination, final
-symlinks are refused, and replacing a hardlink does not modify its other names.
+- **Its own table, nobody else's.** With nftables the switch lives in a
+  dedicated `inet wg_helper_killswitch` table with its own OUTPUT base chain,
+  replaced in one nft transaction. It never edits another table, so firewalld,
+  a distro ruleset or your own rules stay untouched.
+- **iptables fallback.** A dedicated `WGH-KILLSWITCH` chain reached by one jump
+  at the top of `OUTPUT`. Needs `iptables` + `iptables-restore`, and
+  `ip6tables` + `ip6tables-restore` whenever the kernel has IPv6. Both families
+  are preflighted; commits are atomic per family.
+- **Your deny rules always win.** nftables `accept` only ends the kill switch's
+  own chain, and the iptables chain `RETURN`s allowed traffic instead of
+  accepting it, so later rules still apply. The iptables jump must stay first in
+  `OUTPUT`; if another rule gets in front of it, the switch counts as
+  incomplete (`missing`) and is rebuilt.
+- **Allowed:** loopback; packets routed into the tunnel; WireGuard's transport
+  (the tunnel's runtime fwmark); IPv6 router/neighbor solicitation and neighbor
+  advertisement (hop limit 255) and MLDv2 reports — without them an IPv6
+  endpoint goes dark once its neighbor-cache entry expires; DHCP client traffic;
+  established SSH return traffic when `SSH_CONNECTION` reaches the helper.
+- **Live edits are safe.** `wg syncconf` would silently reset the fwmark
+  wg-quick set at runtime. The helper carries the running fwmark and listen port
+  into the synced config, refuses a config that changes `FwMark` on a running
+  tunnel (reconnect instead), re-reads the mark and repairs the switch if
+  needed.
+- **One at a time.** Only one tunnel can own the kill switch. It needs an
+  already-active interface and can assign an unused runtime fwmark without
+  touching the saved config; it never starts a stopped tunnel for you.
+- **Fail closed.** Down/delete/rename keep protection when the interface is
+  still up or its state is unknown. If the interface disappears without a
+  disconnect, the rules stay and keep blocking (`mismatch`) until you
+  disconnect. Quitting the app doesn't clear the rules.
+- **Not persistent.** Rules and the "it was requested" marker live in the
+  kernel and under `/run`, so both are gone after a reboot. A switch built by
+  1.9.3 or older reports `mismatch` and is rebuilt in the new layout.
+- This is host-output control — not forwarding/NAT for a server, and not a
+  general no-leak guarantee. It can interrupt remote access.
 
-Restore accepts only valid, unique, top-level `.conf` entries. It rejects
-malformed/duplicate archive names, invalid configs and hooks before its first
-save. Limits are **64 MiB per ZIP**, **4,096 archive entries**, **1,024 configs**,
-**1 MiB per config**, and **16 MiB total config text**. Unrelated files are
-skipped. Backup reads require an owned regular file with one hard link and
-refuse symlinks/FIFOs; copy a hardlinked archive to an ordinary file first.
+Proven against real kernels in CI: `tests/killswitch-e2e.sh` builds real
+WireGuard tunnels in network namespaces (IPv4 and IPv6 endpoints × nftables and
+iptables) and checks leaks, neighbor-cache expiry, deny-rule precedence, live
+updates, firewall reloads and interface loss.
 
-After complete preflight, restore copies every saved config it is about to
-overwrite, then saves sequentially. It overwrites matching saved names, leaves
-other tunnels in place, and does not sync running interfaces. If a later save
-fails (or times out), restore **rolls back**: overwritten tunnels get their
-previous contents back and tunnels the restore created are removed again. The
-report names every tunnel restored, removed or, if a rollback step itself
-failed, left changed. Helper per-file backups remain a separate recovery
-source under `/etc/wireguard/.backup/`. All these archives contain unencrypted
-private keys.
+</details>
 
-Only **one helper-managed kill switch** can be active at a time across managed
-tunnels. Turn the existing one off before enabling another. The helper requires
-an already-active interface; it can assign an unused runtime WireGuard fwmark
-without changing the saved config. It does not activate a stopped tunnel as a
-side effect of enabling a switch.
+## 🩺 Is my tunnel actually OK?
 
-The helper prefers nftables. It keeps the kill switch in its **own table**,
-`inet wg_helper_killswitch`, with its own OUTPUT base chain, and replaces that
-table in one nft transaction. It never edits another table, so firewalld, a
-distro ruleset or your own rules stay untouched. The fallback uses a dedicated
-`WGH-KILLSWITCH` chain reached by one jump at the top of `OUTPUT`. It requires
-`iptables` and `iptables-restore`; when the kernel exposes IPv6 support it also
-requires `ip6tables` and `ip6tables-restore`. Both families are preflighted;
-commits are atomic **per family**, not one transaction across IPv4 and IPv6.
+WireGuard is a polite protocol: it only talks when it has something to say.
+So an old handshake on a quiet tunnel isn't a funeral, it's a nap. 😴
 
-The rules allow loopback, packets routed into the selected tunnel, its
-transport traffic (identified by the tunnel's runtime fwmark), IPv6
-router/neighbor solicitation and neighbor advertisement (hop limit 255) and
-MLDv2 reports, DHCP client traffic, and established SSH return traffic when
-`SSH_CONNECTION` reaches the helper; everything else leaving the host is
-rejected. Without the Neighbor Discovery exception an IPv6 endpoint becomes
-unreachable once its neighbor cache entry expires. The exceptions **never
-override your deny rules**: nftables `accept` only ends the kill switch's own
-chain, and the iptables chain `RETURN`s allowed traffic to `OUTPUT` instead of
-accepting it, so later rules still apply. This is host-output control, not
-server forwarding/NAT or a general no-leak guarantee. It may disrupt remote
-access.
+| Health | Means |
+|---|---|
+| 🟢 **Healthy** | A handshake within the last 3 minutes |
+| 🔵 **Connecting** | No handshake yet, but packets (or keepalives) are on their way |
+| ⚪ **Idle** | Old handshake, nothing to send right now. Totally normal. |
+| 🟡 **No traffic** | Never handshaked, and nothing has tried to go through yet |
+| 🟠 **Handshake stale** | Old handshake while traffic (or a keepalive) should have renewed it |
+| 🔴 **Connection failed** | Sending for 90+ seconds with no answer, or a keepalive peer that never answered |
 
-Status is one of `enabled`, `disabled`, `missing` or `mismatch`. **Enabled**
-requires complete rules whose mark equals the interface's current fwmark.
-**Missing** means the switch was turned on but its rules are gone or
-incomplete, for example after a firewall reload (`nft flush ruleset`,
-`firewall-cmd --reload`). **Mismatch** means rules exist but are stale: the
-mark changed, the interface is down, an older release built them, or the
-iptables jump is no longer first in `OUTPUT`. On an active tunnel the app
-repairs both automatically (`wg-helper killswitch-repair`), once per loss and
-with backoff, and reports the result.
+The system clock only gets blamed as a *possible* cause, and only when
+handshakes are actually failing and the clock isn't synced.
 
-Editing a connected tunnel keeps the kill switch working. `wg syncconf` would
-reset the fwmark that wg-quick set at runtime; the helper carries the running
-fwmark and listen port into the synced config, refuses a config that changes
-`FwMark` on a running tunnel (reconnect to apply it), verifies the mark
-afterwards and repairs the kill switch if needed.
+## ✏️ Editing, backups and imports
 
-Down/delete/rename retain protection if the interface is still active or its
-state is unknown, and report stop/cleanup failures. If the interface
-disappears without a disconnect, the rules stay and keep blocking traffic
-(status `mismatch`) until you disconnect. App exit does not clear rules. The
-switch is not persistent: the rules and the record that it was requested live
-in the kernel and under `/run`, so both are gone after a reboot. A switch built
-by an earlier release (1.9.3 or older) is reported as `mismatch` and rebuilt in the
-current layout on the next refresh.
+- Configs stay plain text: inline `#` comments and repeated Address / DNS /
+  AllowedIPs are fine. The helper refuses `PreUp`/`PostUp`/`PreDown`/`PostDown`
+  — they would run as root.
+- Editing a running tunnel applies WireGuard settings live; Address / DNS /
+  MTU / routing changes still need a reconnect. `p` (save live state) can
+  replace saved settings — review the result.
+- Backups live in `$XDG_DATA_HOME/wireguard/backups` (or
+  `~/.local/share/wireguard/backups`), shared with the desktop app. **They
+  contain unencrypted private keys.** So do QR codes, exports and running
+  config.
 
-Config validation is shared by the frontend and privileged helper. It checks
-every directive occurrence, known sections/field placement, canonical 32-byte
-WireGuard base64 keys (including padding bits), numeric CIDR/port/keepalive
-bounds, and required peer fields. Inline comments, repeated Interface sections,
-repeated Address/DNS/AllowedIPs, scoped IPv6 endpoints, named/numeric Table,
-FwMark hex/off and SaveConfig booleans are supported. Unknown fields or malformed
-sections stay visible in raw text but cannot be saved until corrected. If a
-PresharedKey directive is present it must contain a valid key; omit it to use
-no PSK. The helper independently rejects all four root script-hook directives.
+<details>
+<summary>📏 Limits, rollbacks and validation (for the curious and the auditors)</summary>
 
-## Doctor, setup, and updates
+- **Imports** and editor output must be regular files ≤ 1 MiB. FIFOs and other
+  special files are refused without waiting for a writer. QR images are decoded
+  in a short-lived child process with a memory limit and a deadline, so a
+  hostile image can only fail its own import.
+- **Editor.** `$VISUAL`, then `$EDITOR`, then `nano`; shell-style quoting but
+  no expansion or execution (use a wrapper script for pipelines). The draft is
+  `0600` in an exclusive `0700` temp directory, cleaned up afterwards
+  (including swap/backup files).
+- **Backup directories** must belong to you and are tightened to `0700`;
+  symlink directories are refused. ZIPs and exports are `0600`, uniquely named
+  and published without overwriting another archive.
+- **Export** reads every tunnel or reports an error — never a "successful"
+  partial archive. Exports and saved logs are written privately, then
+  published atomically; failed writes keep the old file, final symlinks are
+  refused, and replacing a hardlink leaves its other names alone.
+- **Restore** accepts only valid, unique, top-level `.conf` entries, rejecting
+  bad names, invalid configs and hooks before the first save. Limits: 64 MiB per
+  ZIP, 4,096 entries, 1,024 configs, 1 MiB per config, 16 MiB total. Backup
+  files must be owned regular files with one link. Restore copies every config
+  it will overwrite, then saves one by one; if a save fails or times out it
+  **rolls back** and reports every tunnel it restored, removed, or — if a
+  rollback step failed — left changed. It doesn't sync running interfaces.
+  The helper's own per-save copies are under `/etc/wireguard/.backup/`.
+- **Validation** is shared by the app and the helper: every directive, known
+  sections and placement, canonical 32-byte base64 keys (padding bits too),
+  CIDR/port/keepalive bounds and required peer fields. Supported: inline
+  comments, repeated Interface sections and Address/DNS/AllowedIPs, scoped IPv6
+  endpoints, named/numeric Table, FwMark hex/off, SaveConfig booleans. A
+  present `PresharedKey` must be valid (omit it for no PSK). Unknown fields stay
+  visible but can't be saved until fixed.
 
-`wg-tui doctor` checks tools, helper/authorization, `/etc/wireguard`, resolvconf
-integration, systemd/journal availability, and Linux clock synchronization. It
-is read-only and exits `0` (no warnings), `1` (warnings), or `2` (critical missing
-requirements). It does not test the kernel module or prove connectivity.
+</details>
 
-`wg-tui setup` offers confirmed package installation for WireGuard tools and a
-resolver provider, or activation of an inactive `resolvectl` shim. It points to
-the installer for the helper and returns the refreshed doctor status. It does
-not create tunnels, create `/etc/wireguard`, or enable tunnel start-on-boot.
-The helper creates `/etc/wireguard` on the first save. `D` diagnoses a selected
-tunnel using clock/handshake checks, endpoint ping, and DNS lookup; blocked ICMP
-can make the ping inconclusive.
+## 🩹 Doctor, setup and updates
 
-At startup the app checks GitHub for a newer release without blocking the UI.
-`u` installs only when that startup check found one; it does not force a new
-check. The updater uses HTTPS, a compiled-in minisign public key, an exact
-archive checksum, and a private temporary directory. It re-runs the verified
-installer using prebuilt binaries, may prompt for privilege, and requires an
-app restart. Prefer your package manager for a distro-managed installation:
-the updater uses the source installer's `/usr/local` layout and default sudoers
-mode. Disable the startup check with `WG_NO_UPDATE_CHECK=1` or a persistent
-`$XDG_CONFIG_HOME/wireguard-tui/no-update` file (default `~/.config/...`).
+- **`wg-tui doctor`** checks tools, the helper and its authorization,
+  `/etc/wireguard`, resolvconf integration, systemd/journal and clock sync.
+  Read-only; exits `0` (all good), `1` (warnings) or `2` (critical). It doesn't
+  test the kernel module or prove connectivity.
+- **`wg-tui setup`** offers confirmed installs of WireGuard tools and a
+  resolver, or enables an inactive `resolvectl` shim. It never creates tunnels
+  or enables start-on-boot. The helper creates `/etc/wireguard` on first save.
+- **Updates.** At startup the app checks GitHub for a newer release (without
+  blocking you); `u` installs it. The download is checked with HTTPS, the
+  compiled-in minisign key and an exact checksum, then the verified installer
+  runs with your recorded prefix and authorization mode. Restart afterwards.
+  Package-manager installs are left to the package manager. Opt out with
+  `WG_NO_UPDATE_CHECK=1` or `$XDG_CONFIG_HOME/wireguard-tui/no-update`.
 
-## Authorization
+<a id="authorization"></a>
 
-A passwordless helper grant can read private tunnel keys and change networking.
-Give it only to trusted operators. The source installer defaults to a per-user
-sudoers grant; polkit instead requires an active local session **and** membership
-in `wireguard`. `--polkit` attempts group creation and membership setup; verify
-membership with `id -nG` after logging out and back in. Package recipes only
-install the rule, so an administrator must arrange membership separately.
-An SSH session does not satisfy the active-local rule; use the scoped sudoers
-installation or an administrator-approved privilege path.
+## 🔐 Security model
 
-The app tries direct execution when already root, otherwise authorized
-`sudo -n`, then `pkexec`. It selects only its own trusted helper paths. Helper
-verbs, fixed paths, atomic writes, backup behavior, updater trust, and known
-security limits are detailed in [SECURITY.md](SECURITY.md). QR codes, generated
-keys, running config, and exported backups may reveal private keys.
+```mermaid
+flowchart LR
+    U[👤 wg-tui<br/>runs as you] -->|"one verb + a tunnel name<br/>(sudo -n · pkexec · direct if root)"| H[🔒 wg-helper<br/>root]
+    H --> W[wg · wg-quick]
+    H --> F[nft / iptables<br/>kill switch only]
+    H --> E[/etc/wireguard/*.conf/]
+    H --> J[(journal:<br/>redacted audit log)]
+```
 
-## Audited helper, installer and update behavior
+- The helper accepts **only** a fixed set of verbs and validated tunnel names —
+  no paths, no options, no shell. It runs tools from fixed system paths with an
+  empty environment, bounded output and hard deadlines.
+- A passwordless grant can read every tunnel's private key and change
+  networking. Give it to trusted operators only. The default is a per-user
+  sudoers grant; `--polkit` instead requires an active local session **and**
+  membership in `wireguard` (check `id -nG` after logging back in; packages
+  install the rule but don't add members). SSH sessions don't count as "active
+  local" — use the sudoers grant there.
 
-Release helper discovery uses this project's own standard `/usr/local/lib/`
-and `/usr/lib/` paths, or an adjacent **trusted** executable. The executable must
-be root-owned, executable and not group/other writable; its directory ancestry
-must also be trusted. A normal user-owned extracted helper is not automatically
-trusted: install the verified bundle first. Release builds no longer fall back
-to the source build directory or another application's helper. Debug overrides
-remain available for development; they do not create an authorization grant.
+<details>
+<summary>🧐 Audited helper and update behaviour</summary>
 
-Background read-only requests use a noninteractive polkit check before pkexec,
-so missing authorization produces an actionable error instead of repeated
-password dialogs. Explicit mutating actions can still request authentication.
-Helper IPC drains input/output concurrently, retains at most 4 MiB per output
-stream, and has an overall 90-second deadline plus bounded pipe cleanup. Local
-key-generation commands have a 10-second deadline. A privileged process that
-the UI user cannot signal may finish independently after a UI-side timeout;
-check actual tunnel state before retrying.
+- **Which helper?** Release builds only use this project's own
+  `/usr/local/lib/` or `/usr/lib/` helper, or an adjacent **trusted** one:
+  root-owned, executable, not group/other writable, with trusted parent
+  directories. A user-owned extracted helper is refused until you install the
+  verified bundle. Release builds never fall back to the build tree or the other
+  app's helper; debug overrides exist for development only.
+- **No password-dialog storms.** Background read-only requests ask polkit
+  non-interactively first, so missing authorization becomes an actionable error.
+  Explicit actions may still ask for authentication.
+- **Bounded IPC.** Input and output are drained concurrently, capped at 4 MiB
+  per stream, with an overall 90-second deadline (10 seconds for local key
+  generation). A privileged process the UI can't signal may finish after a UI
+  timeout — the app then re-reads the real state instead of guessing.
+- **Updates.** The private download directory is owned and cleaned up on every
+  path. Before escalation the whole bundle is checked (regular single-link
+  files, no symlink components, a fresh exclusive staging tree); HTTPS-only
+  redirects; the verified version must be newer than the running one. The
+  updater picks the build for your CPU (x86_64/i686/aarch64/armv7) and fails
+  explicitly on anything else.
 
-Before privileged writes or helper grants, `PREFIX` must be an absolute ASCII
-path containing only letters, digits, `/`, `_`, `.` and `-`, with no empty,
-`.` or `..` components or trailing slash. Existing directory ancestors must be
-root-owned without group/other write permission; symlinks are refused. A
-group-writable `/usr/local` can therefore fail these checks. An administrator
-must choose or prepare a protected path; the installer does not take ownership
-of caller directories. `--polkit` supports only `/usr` or `/usr/local`, matching
-the bundled rule. Custom sudoers prefixes still require matching frontend helper
-discovery configuration.
+</details>
 
-Installer options are validated; unknown options fail instead of being ignored.
-Source builds use the lockfile. Switching sudoers/polkit modes installs and
-validates the selected grant before removing the previous grant. Failed sudoers
-validation or group enrollment reports failure and keeps prior authorization.
-`--polkit` requires pkexec up front; it does not install a rule and then claim
-success without the escalation tool. Packages still do not enroll users.
+Full details, threat model and limits: **[SECURITY.md](SECURITY.md)** ·
+architecture and data flow: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
-Repeating `--polkit` checks the existing `wireguard` group and account
-membership before invoking group-management tools. An already configured
-Alpine/BusyBox system can reinstall without optional Shadow `groupadd`/`usermod`.
-Missing groups or membership must still be created and verified before the
-previous authorization is removed.
+## 🐛 Troubleshooting
 
-Verified updates retain ownership of their private download directory through
-installation and clean it up on download, staging or installation failure and
-normal completion. Before privilege escalation, the whole required bundle is
-checked: regular single-link application/helper/installer/assets, no symlink
-components, and a fresh exclusive staging tree. Missing/unsafe assets fail before
-installation starts. HTTPS-only redirects are enforced. TUI automatic updates select its
-published x86_64/i686/aarch64/armv7 builds; unsupported CPUs fail explicitly.
+<details>
+<summary><b>"It says Idle. Is my VPN dead?"</b></summary>
 
-Update download rechecks that the verified version is newer than the running
-version. The completed update reports that verified version, and still needs
-an application restart. Prefer a package-manager upgrade for a packaged install.
+Nope, it's napping. WireGuard only handshakes when there's traffic. Send
+something (open a page, `ping` a peer) and watch it turn 🟢. If it goes 🟠 or
+🔴 instead, press `D` to diagnose.
+</details>
 
-## Development and further reading
+<details>
+<summary><b>"Active", but <code>0 B received</code> and no handshake — ever</b> 🕰️🛸</summary>
+
+Before you blame the server, check whether your machine has become a time
+traveller. WireGuard stamps every handshake with the current time. If your
+clock once leapt into the future (hello, dual-boot Windows and dying CMOS
+batteries), the server remembers that future timestamp and — thanks to its
+replay protection — politely ignores every *correctly timed* handshake you send
+afterwards. Your packets cheerfully leave the building; the server just refuses
+to talk to someone who keeps trying to "replay" tomorrow.
+
+Fix: sync the clock (`timedatectl set-ntp true`, or install chrony), and if it
+already drifted, reset the peer on the server (on wg-easy:
+`docker restart wg-easy`). `D` (Diagnose) and the health view point at the
+clock — but only when handshakes are really failing *and* the clock isn't
+synced, because an idle tunnel with an old handshake is just napping. This
+check was lovingly forged during one very long evening of staring at
+`0 B received` and slowly losing our minds.
+</details>
+
+<details>
+<summary><b>Connected, but nothing loads</b></summary>
+
+Press `D`. Then check the server knows your peer key, the endpoint and port,
+routing (AllowedIPs), the server firewall, DNS and your clock. "Interface is up"
+proves the interface is up — sadly not that the internet loves you back.
+</details>
+
+<details>
+<summary><b>Activating fails with a DNS / resolvconf error</b></summary>
+
+`DNS =` needs a working `resolvconf`. If yours is the `resolvectl` shim,
+systemd-resolved must be running. `wg-tui setup` can fix both; details per
+distro in [docs/DISTROS.md](docs/DISTROS.md).
+</details>
+
+<details>
+<summary><b>It keeps asking for a password / "authorization required"</b></summary>
+
+Re-run `./install.sh` (sudoers) or `./install.sh --polkit` and log out and back
+in. `wg-tui doctor` tells you which part is missing. Over SSH, polkit's
+"active local session" rule won't match — use the sudoers grant.
+</details>
+
+<details>
+<summary><b>The kill switch says <code>missing</code></b></summary>
+
+Something reloaded the firewall and took the rules with it. The app repairs it
+automatically on an active tunnel; if it can't, it tells you why. Turning the
+switch off and on again also works (the classic).
+</details>
+
+<details>
+<summary><b>A tunnel managed by something else behaves strangely</b></summary>
+
+Two tools driving one interface is a sitcom plot, not a network setup. Don't
+manage the same interface through NetworkManager (or another client) and
+`wg-tui` at the same time.
+</details>
+
+## 🔧 Hacking on it
+
+This is MIT open source — fork it and hack on your own ideas.
 
 ```sh
 cargo build --release --locked
 cargo run --release --locked --bin wg-tui -- --help
+bash scripts/dev-setup.sh      # checks your machine has everything the checks need
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full check list and helper override
-rules. The application and helper are separate binaries; the project does not
-bundle `wg`/`wg-quick`, kernel modules, or an editor.
+### 🗺️ Codebase map
 
-- [Step-by-step tutorial](docs/TUTORIAL.md)
-- [WireGuard concepts](docs/help.md)
-- [Distro and DNS guide](docs/DISTROS.md)
-- [Release verification/build process](docs/RELEASES.md)
-- [Changelog](CHANGELOG.md)
-- [Packaging](packaging/PACKAGING.md)
+| Path | What lives there |
+|---|---|
+| `src/main.rs`, `src/cli.rs` | Startup, flags, terminal setup |
+| `src/state.rs`, `src/input.rs`, `src/keymap.rs` | App state, key handling, the one key table that also builds `?` |
+| `src/actions.rs`, `src/ops.rs` | Background operations and the operation state machine (verified against the real state) |
+| `src/ui/`, `src/theme.rs` | Rendering, layouts for small terminals, themes |
+| `src/editor.rs` | External editor and draft recovery |
+| `src/backend.rs`, `src/backend/` | Helper client, backups, QR, per-peer health, diagnostics |
+| `src/import_parse.rs`, `src/qr_isolate.rs`, `src/safe_file.rs` | Import parsing, isolated QR decoding, the one safe file-open routine |
+| `src/config.rs`, `src/secrets.rs` | Config parsing/validation and secret redaction (compiled into the helper too) |
+| `src/validation.rs` | Tunnel-name rules and import-name sanitising (property-tested against the helper's own check) |
+| `src/doctor.rs`, `src/update.rs` | `doctor`/`setup` checks and the verified updater |
+| `src/bin/wg-helper/` | The privileged helper: verbs, filesystem, runtime, firewall (`nft.rs`, `iptables.rs`), logging |
+| `install.sh`, `packaging/` | Installer, polkit rule, desktop entry, distro recipes |
+| `tests/` | Shell suites (helper, installer, namespace firewall, kill switch e2e, release contract), property tests, fixtures |
+| `fuzz/` | cargo-fuzz targets for config, redaction, names, backup ZIPs and QR selection |
 
-If the app is useful, [star the project](https://github.com/JamilleJung/wireguard-tui)
-or [buy the maintainer a coffee](https://www.buymeacoffee.com/jamillejung).
+### 🔒 Adding privileged behaviour
 
-MIT licensed. WireGuard is a registered trademark of Jason A. Donenfeld; this
-is an independent, unofficial project.
+Add a helper verb only when it maps to a concrete WireGuard operation. Keep the
+input shape fixed, validate tunnel names before touching the filesystem, use
+fixed paths, never go through a shell, back up before destructive changes,
+check the resulting state, and never log private keys.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) has the full check list (fmt, clippy, tests,
+property tests, fuzzing, mutation testing, namespace and end-to-end tests) and
+the helper override rules. The app and helper are separate binaries;
+`wg`/`wg-quick`, kernel modules and your editor are not bundled.
+
+## 🚧 Known limitations
+
+- Start-on-boot is systemd-only; other init systems need their own service.
+- The kill switch is temporary host-output policy, not a daemon or a
+  persistent firewall manager, and only one tunnel can own it at a time.
+- The polkit rule needs an active local session, so over SSH use the sudoers
+  grant.
+- The `.deb` is amd64 only; other CPUs use the static tarballs.
+- Distro recipes (AUR, RPM, Alpine, Void) are ready to submit but not yet in
+  the official repositories.
+
+## 🗺️ Roadmap
+
+- Get the AUR, Fedora, Alpine and Void packages into their official repositories.
+- Your idea here — [open an issue](https://github.com/JamilleJung/wireguard-tui/issues).
+
+## 📚 Docs
+
+| | |
+|---|---|
+| 🧭 [Tutorial](docs/TUTORIAL.md) | From zero to a connected tunnel, step by step |
+| 📖 [WireGuard concepts](docs/help.md) | Keys, peers, AllowedIPs, handshakes — the in-app guide |
+| 🐧 [Distros and DNS](docs/DISTROS.md) | Per-distro notes, resolvers, SELinux, client vs server |
+| 🏗️ [Architecture](docs/ARCHITECTURE.md) | Privilege boundary, modules, data flow, kill switch design |
+| 🔐 [Security](SECURITY.md) | Threat model, helper verbs, limits |
+| 📦 [Releases](docs/RELEASES.md) · [Packaging](packaging/PACKAGING.md) | Verification, pipeline, distro recipes |
+| ✅ [Release checklist](docs/RELEASE_CHECKLIST.md) · [Repo settings](docs/REPO_SETTINGS.md) | For maintainers |
+| ♿ [Accessibility](ACCESSIBILITY.md) · 🤝 [Contributing](CONTRIBUTING.md) | Themes, keyboard, how to help |
+| 📋 [Changelog](CHANGELOG.md) | What changed, and when |
+
+## ⭐ Star this project
+
+If `wg-tui` saved you from typing `sudo wg-quick down wg0 && sudo wg-quick up wg0`
+one more time, **[give it a star](https://github.com/JamilleJung/wireguard-tui)** ⭐ —
+it really does help other people find it. Watch the repo for releases, or fork
+it and make it yours.
+
+## ☕ Buy me a coffee
+
+Built in spare time, fuelled by caffeine. If it made your day a little easier,
+a coffee is hugely appreciated 💛
+
+<div align="center">
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/jamillejung)
+
+</div>
+
+## 📄 License
+
+MIT. WireGuard is a registered trademark of Jason A. Donenfeld; this is an
+independent, unofficial project, not affiliated with or endorsed by the
+WireGuard project.
