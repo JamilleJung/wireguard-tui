@@ -313,8 +313,10 @@ def elf_info(data):
             "rpath": rpath, "sections": sections}
 
 
-def check_binary(label, raw, arch):
-    """raw: bytes of the shipped (UPX-packed) binary."""
+def check_binary(label, raw, arch, static=None):
+    """raw: bytes of the shipped (UPX-packed) binary. static: expect static
+    linkage (default: the project's tarball rule; the TUI .deb is glibc)."""
+    static = STATIC if static is None else static
     with tempfile.TemporaryDirectory() as tmp:
         packed = os.path.join(tmp, "packed")
         with open(packed, "wb") as fh:
@@ -345,7 +347,7 @@ def check_binary(label, raw, arch):
             fail(f"{label}: ELF class/machine {info['class']}/{info['machine']} is not {arch}")
         if data is raw:
             return  # packed image: linkage/SBOM are only visible after upx -d
-        if STATIC:
+        if static:
             if info["interp"] is None and not info["needed"]:
                 ok(f"{label}: statically linked (no interpreter, no needed libraries)")
             else:
@@ -525,7 +527,7 @@ def check_deb():
             for rel in (f"usr/bin/{APP}", f"usr/lib/{PROJECT}/wg-helper"):
                 f = os.path.join(tmp, rel)
                 if os.path.isfile(f):
-                    check_binary(f"{DEB}:{rel}", open(f, "rb").read(), "x86_64")
+                    check_binary(f"{DEB}:{rel}", open(f, "rb").read(), "x86_64", static=False)
 
 
 def check_appimage():

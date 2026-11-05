@@ -311,10 +311,14 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Collect artifacts
+        env:
+          EVENT: ${{ github.event_name }}
         run: |
           mkdir -p out
           find dist -type f \( -name '*.tar.gz' -o -name '*.deb' \) -exec cp -v {} out/ \;
-          cp minisign.pub out/
+          # A dry run signs with a throwaway key; shipping the project key
+          # beside it would (rightly) fail verification.
+          if [ "$EVENT" = push ]; then cp minisign.pub out/; fi
           ls -l out
       - name: Generate checksums
         working-directory: out
