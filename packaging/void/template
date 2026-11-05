@@ -16,7 +16,7 @@ license="MIT"
 homepage="https://github.com/JamilleJung/wireguard-tui"
 changelog="https://raw.githubusercontent.com/JamilleJung/wireguard-tui/main/CHANGELOG.md"
 distfiles="https://github.com/JamilleJung/wireguard-tui/archive/refs/tags/v${version}.tar.gz"
-checksum=@CHECKSUM@
+checksum=03bd0dfac0996473fe71616b717eceb22ae4cc3637dd5c4a79a602ef878bb309
 
 # The cargo build style's do_install would put wg-helper in /usr/bin.
 do_install() {
