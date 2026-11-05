@@ -25,7 +25,7 @@ install=wireguard-tui.install
 # hold only dangling build-id links.
 options=('!debug')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('03bd0dfac0996473fe71616b717eceb22ae4cc3637dd5c4a79a602ef878bb309')
 
 prepare() {
     cd "$pkgname-$pkgver"

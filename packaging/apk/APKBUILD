@@ -48,5 +48,5 @@ package() {
 }
 
 sha512sums="
-SKIP  wireguard-tui-1.10.0.tar.gz
+8d930f3cb3262e5ac415296bdc5756eea32b8b971c06e98bdb8a0f5dcb076ccc1bce7f4beeae5a81c7d9bbc7745507d7359a60bf2a740cfb411f3bcf9510fc2e  wireguard-tui-1.10.0.tar.gz
 "
