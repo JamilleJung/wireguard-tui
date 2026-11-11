@@ -1,6 +1,6 @@
 # Linux distro, DNS, and service guide
 
-This guide describes the 1.9.3 installer and runtime requirements. Package names
+This guide describes the current (1.10.x) installer and runtime requirements. Package names
 and system policy can vary by distro release; check the package manager's output
 and `wg-tui doctor` on the actual host.
 
@@ -263,7 +263,7 @@ installer, packaging or helper, and on release tags. Without KVM the test
 falls back to TCG. For example, an aarch64 or x86_64 guest in Docker on an
 Apple silicon Mac takes 10 to 15 minutes.
 
-## 1.9.3 integration requirements
+## Integration requirements
 
 Before privileged writes or helper grants, `PREFIX` must be an absolute ASCII
 path containing only letters, digits, `/`, `_`, `.` and `-`, with no empty,

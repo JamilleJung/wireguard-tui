@@ -198,8 +198,12 @@ session stay allowed, and your own firewall's deny rules still apply.
   iptables with iptables-restore, plus ip6tables when IPv6 is present).
 - Only one tunnel can own the kill switch at a time.
 - It is not a daemon and not server NAT setup: it is temporary host-output
-  policy. A reboot clears it; quitting the app does not. Disconnect, delete
-  and rename try to clean it up.
+  policy, and it is NOT persistent. Quitting the app keeps it. Disconnect,
+  delete and rename turn it off, and reconnecting does not turn it back on:
+  press `K` again. A reboot clears it, even for a tunnel that starts on boot.
+  While the app is closed, nothing repairs it after a firewall reload. To
+  block traffic from boot or whenever no tunnel is up, use your own
+  persistent firewall.
 - nftables changes are one batch; the iptables fallback commits each family
   (IPv4, IPv6) atomically, but not both together.
 

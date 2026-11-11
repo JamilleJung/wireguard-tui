@@ -156,6 +156,15 @@ That's it. The installer:
 | `--allow-root` | Allow installing from a direct root login |
 | `uninstall` | Remove everything the installer added; your tunnel configs stay put |
 
+> [!WARNING]
+> **The helper grant is passwordless, and it is not limited to `wg-tui`.** Any
+> program running as your user can use it to read every private key in
+> `/etc/wireguard` and connect, disconnect or kill-switch tunnels that affect
+> every user on the machine. Fine on a personal machine; on a shared host,
+> jump box or CI runner, read
+> [Shared and multi-user hosts](SECURITY.md#-shared-and-multi-user-hosts)
+> first.
+
 > [!NOTE]
 > Your tunnels in `/etc/wireguard` are never touched by install, update or uninstall.
 
@@ -358,8 +367,13 @@ flowchart LR
   still up or its state is unknown. If the interface disappears without a
   disconnect, the rules stay and keep blocking (`mismatch`) until you
   disconnect. Quitting the app doesn't clear the rules.
-- **Not persistent.** Rules and the "it was requested" marker live in the
-  kernel and under `/run`, so both are gone after a reboot. A switch built by
+- **Not persistent.** It protects one connected session, nothing more.
+  Disconnecting turns it off, reconnecting does **not** turn it back on (press
+  `K` again), and a reboot clears it even for a start-on-boot tunnel. While
+  the app is closed nobody repairs it after a firewall reload. For "block
+  everything unless the VPN is up" from boot, use your own persistent
+  firewall. The full table is in
+  [SECURITY.md](SECURITY.md#-kill-switch-scope-and-lifetime). A switch built by
   1.9.3 or older reports `mismatch` and is rebuilt in the new layout.
 - This is host-output control — not forwarding/NAT for a server, and not a
   general no-leak guarantee. It can interrupt remote access.

@@ -288,10 +288,22 @@ If you press **`K`** while the switch is on but not in force, a popup offers
 
 > [!IMPORTANT]
 > Only **one** tunnel can own the kill switch at a time — turn the existing one
-> off before enabling another. It never starts a stopped tunnel for you, and it
-> is **not persistent**: the rules and the "it was requested" marker live in
-> the kernel and under `/run`, so a reboot clears them. Quitting the app does
-> not.
+> off before enabling another. It never starts a stopped tunnel for you.
+>
+> It is also **not persistent**. The rules and the "it was requested" marker
+> live in the kernel and under `/run`, so:
+>
+> - Quitting the app keeps the switch on.
+> - **Disconnect** turns it off. **Reconnect** does not turn it back on:
+>   press `K` again.
+> - A **reboot** clears it, even if the tunnel starts on boot.
+> - If a **firewall reload** wipes the rules while the app is **closed**,
+>   traffic can leave outside the tunnel until you open the app and it repairs
+>   the switch.
+>
+> To block traffic from boot, or whenever no tunnel is up, use your own
+> persistent firewall. The full table is in
+> [SECURITY.md](../SECURITY.md#-kill-switch-scope-and-lifetime).
 
 <details>
 <summary>🔬 The nerdy details: nftables, iptables, fwmarks, IPv6</summary>
