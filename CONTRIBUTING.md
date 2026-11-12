@@ -7,7 +7,7 @@
 </div>
 
 Thanks for wanting to make `wg-tui` better! Bug reports, ideas and focused
-pull requests are all welcome. The latest release is **1.9.3**; what changed
+pull requests are all welcome. The latest release is **1.10.0**; what changed
 since then lives under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md).
 
 ## 🚀 Get set up in 3 commands

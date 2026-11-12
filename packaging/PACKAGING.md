@@ -181,7 +181,7 @@ There is no supplied Flatpak because system helper/network administration does
 not fit this project's current sandbox model. See [SECURITY.md](../SECURITY.md)
 for the privilege boundary and [RELEASES.md](../docs/RELEASES.md) for signatures.
 
-## 1.9.3 compatibility and validation
+## Install prefix and helper validation
 
 Before privileged writes or helper grants, `PREFIX` must be an absolute ASCII
 path containing only letters, digits, `/`, `_`, `.` and `-`, with no empty,
